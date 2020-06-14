@@ -4,6 +4,7 @@ using Microsoft.AspNet.OData;
 using Microsoft.AspNet.OData.Routing;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace graphqlodata.Controllers
 {
@@ -16,7 +17,7 @@ namespace graphqlodata.Controllers
             _booksRepository = booksRepository;
         }
 
-        public ICollection<Book> Get()
+        public IQueryable<Book> Get()
         {
             
             return _booksRepository.GetBooks();
@@ -34,6 +35,11 @@ namespace graphqlodata.Controllers
         {
             var book = new Book { Id = 14, Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
             return book;
+        }
+        [ODataRoute("GetSomeBook(title={mytitle})")]
+        public Book GetSomeBook([FromODataUri] string mytitle)
+        {
+            return _booksRepository.GetBooks().Last();
         }
     }
 }

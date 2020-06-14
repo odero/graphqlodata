@@ -71,7 +71,9 @@ namespace graphqlodata
             action.Parameter<int>("id");
             action.Parameter<string>("author");
             action.Parameter<string>("title");
-
+            builder.Function("GetSomeBook")
+                .ReturnsFromEntitySet<Book>("Books")
+                .Parameter<string>("title");
             return builder.GetEdmModel();
         }
     }
