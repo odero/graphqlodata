@@ -8,7 +8,7 @@
   <ItemGroup>
     <PackageReference Include="GraphQL-Parser" Version="5.1.2" />
     <PackageReference Include="Microsoft.AspNet.WebApi.Core" Version="5.2.7" />
-    <PackageReference Include="Microsoft.AspNetCore.OData" Version="7.4.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OData" Version="7.4.1" />
     <PackageReference Include="Microsoft.OData.ModelBuilder" Version="1.0.1-beta" />
   </ItemGroup>
 

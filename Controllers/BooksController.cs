@@ -8,6 +8,7 @@ using System.Linq;
 
 namespace graphqlodata.Controllers
 {
+    [EnableQuery]
     public class BooksController : ODataController
     {
         private readonly IBooksRepository _booksRepository;

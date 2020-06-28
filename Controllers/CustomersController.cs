@@ -1,6 +1,7 @@
 ﻿using graphqlodata.Models;
 using graphqlodata.Repositories;
 using Microsoft.AspNet.OData;
+using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,6 +9,7 @@ using System.Threading.Tasks;
 
 namespace graphqlodata.Controllers
 {
+    [EnableQuery]
     public class CustomersController : ODataController
     {
         private readonly ICustomerRepository _customerRepository;
@@ -17,14 +19,14 @@ namespace graphqlodata.Controllers
             _customerRepository = customerRepository;
         }
 
-        public ICollection<Customer> Get()
+        public IQueryable<Customer> Get()
         {
-            return _customerRepository.GetCustomers();
+            return _customerRepository.GetCustomers().AsQueryable();
         }
 
-        public Customer Get([FromODataUri]int key)
+        public IActionResult Get([FromODataUri]int key)
         {
-            return _customerRepository.GetCustomer(key);
+            return Ok(_customerRepository.GetCustomer(key));
         }
     }
 }

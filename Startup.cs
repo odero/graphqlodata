@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -32,8 +33,6 @@ namespace graphqlodata
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            //services.AddControllers();
-            services.AddMvc();
             services.AddOData();
             services.AddScoped<IBooksRepository, BooksRepository>();
             services.AddScoped<ICustomerRepository, CustomerRepository>();
@@ -53,11 +52,11 @@ namespace graphqlodata
             app.UseODataBatching();
             app.UseRouting();
 
-            app.UseAuthorization();
+            //app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
             {
-                endpoints.Filter().Expand();
+                endpoints.Filter().Expand().Select();
                 endpoints.MapODataRoute("odata", "odata", GetEdmModel(), new DefaultODataBatchHandler());
             });
         }

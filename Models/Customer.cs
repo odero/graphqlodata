@@ -12,8 +12,10 @@ namespace graphqlodata.Models
         public int Id { get; set; }
         public string Name { get; set; }
 
+        public string Email { get; set; }
         [AutoExpand]
-        [ForeignKey("Book")]
         public List<Book> Books { get; set; }
+
+        public List<Address> Addresses { get; set; }
     }
 }

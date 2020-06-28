@@ -6,7 +6,7 @@ A middleware translates graphql to odata
 - [x] handling entityset queries
 - [x] handling functions and actions
 - [x] handling variables
-- [ ] translate to $expand, query fields that have selection sets
+- [x] translate to $expand, query fields that have selection sets
 - [ ] translate updates and deletes to patch and delete (not post)
 - [ ] translating fragments
 - [ ] handling custom filtering module e.g. for playground and hasura

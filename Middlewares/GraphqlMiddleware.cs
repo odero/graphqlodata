@@ -72,7 +72,6 @@ namespace graphqlodata.Middlewares
         private async Task ConvertGraphQLtoODataQuery(HttpRequest req, string graphQLQuery)
         {
             //Convert graphql syntax
-            //todo: consider returning a type/descriptor with path, queryString, headers, queryType(query/mutation/subscription)
             RequestNodeInput parsedQuery = ParseGraphql(graphQLQuery, out bool isBatch);
             //todo: build req path prefix
             var pathPrefix = "odata";
@@ -171,27 +170,27 @@ namespace graphqlodata.Middlewares
         {
             BatchRequestObject batchRequest = new BatchRequestObject();
 
-            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, i) => (i, value) ))
+            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, index) => (index, value) ))
             {
                 var nodeName = qryNode.value.Name.Value;
                 //todo: check if query/mutation to determine request method - probably not possible in graphql to combine query and mutation in same request
-                //todo: translate to expand, query fields that have selection sets
-                RequestNodeInput selectedFields;
+                RequestNodeInput requestInput;
+
                 if (QueryIsFunctionType(nodeName))
                 {
-                    selectedFields = VisitRequestNode(qryNode.value, GQLRequestType.Function);
-                    selectedFields.QueryString = $"{nodeName}({selectedFields.QueryString})";
+                    requestInput = VisitRequestNode(qryNode.value, GQLRequestType.Function);
+                    requestInput.QueryString = $"{nodeName}({requestInput.Path})?$select={requestInput.QueryString}";
                 }
                 else
                 {
-                    selectedFields = VisitRequestNode(qryNode.value);
-                    selectedFields.QueryString = $"{nodeName}/" + new QueryString($"?$select={selectedFields.QueryString}");
+                    requestInput = VisitRequestNode(qryNode.value);
+                    requestInput.QueryString = $"{nodeName}/" + new QueryString($"?$select={requestInput.QueryString}");
                 }
                 batchRequest.Requests.Add(new RequestObject
                 {
-                    id = $"{qryNode.i + 1}",
+                    id = $"{qryNode.index + 1}",
                     method = "GET",
-                    url = selectedFields.QueryString,
+                    url = requestInput.QueryString,
                     headers = new Dictionary<string, string>
                     {
                         { "content-type", "application/json; odata.metadata=none; odata.streaming=true" },
@@ -336,8 +335,18 @@ namespace graphqlodata.Middlewares
         private RequestNodeInput VisitRequestNode(GraphQLFieldSelection fieldSelection, GQLRequestType requestType = GQLRequestType.Query)
         {
             var nodeFields = new List<string>();
-            foreach (var field in fieldSelection.SelectionSet.Selections)
+            var expandItems = new List<string>();
+
+            foreach (var field in fieldSelection.SelectionSet.Selections.OfType<GraphQLFieldSelection>())
             {
+                RequestNodeInput expandField = null;
+                if (field.SelectionSet?.Selections.Any() == true)
+                {
+                    expandField = VisitRequestNode(field);
+                    var expandString = $"{field.Name.Value}($select={expandField.QueryString})";
+                    expandItems.Add(expandString);
+                    continue;
+                }
                 var visitedField = VisitNodeFields(field as GraphQLFieldSelection);
                 nodeFields.Add(visitedField);
             }
@@ -349,28 +358,37 @@ namespace graphqlodata.Middlewares
                 //todo: return nodefields as well
                 return new RequestNodeInput
                 {
-                    QueryString = string.Join(", ", nodeFields),
+                    QueryString = string.Join(",", nodeFields),
                     Body = argString,
                 };
-                    //argString + ":" + string.Join(", ", nodeFields);
             }
             else if (requestType == GQLRequestType.Function)
             {
                 return new RequestNodeInput
                 {
-                    QueryString = argString,
+                    Path = argString,
                     RequestType = requestType,
+                    QueryString = string.Join(",", nodeFields),
                 };
             }
             else if (requestType == GQLRequestType.Query)
             {
-                var selectFieldString = string.Join(", ", nodeFields);
+                var selectFieldString = string.Join(",", nodeFields);
+                var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
+                var expandString = string.Join(",", expandItems.Where(s => !string.IsNullOrEmpty(s)));
+                expandString = expandItems.Any() ? "$expand=" + expandString : "";
+                var queryStringParts = new[]
+                { 
+                    fullSelectString,
+                    expandString,
+                }
+                .Where(s => !string.IsNullOrEmpty(s));
+
                 return new RequestNodeInput
                 {
-                    QueryString = selectFieldString + "&" + argString,
+                    QueryString = string.Join("&", queryStringParts),
                     RequestType = requestType,
                 };
-                //return string.Join(", ", nodeFields) + argString;
             }
             return default;
             
