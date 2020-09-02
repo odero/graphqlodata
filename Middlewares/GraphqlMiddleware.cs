@@ -1,19 +1,17 @@
-﻿using GraphQLParser;
+using GraphQLParser;
 using GraphQLParser.AST;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.OData.Edm;
 using Microsoft.OData.Edm.Csdl;
-using Microsoft.OData.Edm.Validation;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Threading.Tasks;
-using System.Web;
 using System.Xml;
 
 namespace graphqlodata.Middlewares
@@ -48,7 +46,7 @@ namespace graphqlodata.Middlewares
             // request pipeline
             var req = context.Request;
             req.EnableBuffering();
-            
+
             if (!req.Path.StartsWithSegments("/odata/graphql"))
             {
                 await _next(context);
@@ -75,6 +73,7 @@ namespace graphqlodata.Middlewares
             RequestNodeInput parsedQuery = ParseGraphql(graphQLQuery, out bool isBatch);
             //todo: build req path prefix
             var pathPrefix = "odata";
+
             if (isBatch)
             {
                 req.Path = $"/{pathPrefix}/$batch";
@@ -100,6 +99,8 @@ namespace graphqlodata.Middlewares
                     }
                 }
             }
+            req.Headers.Remove("accept");
+            req.Headers.Add("accept", "application/json;odata.metadata=none");
         }
 
         private async Task<string> ReadResponseBody(HttpResponse res)
@@ -118,7 +119,8 @@ namespace graphqlodata.Middlewares
         private async Task WriteRequestBody(HttpRequest req, string payload)
         {
             byte[] reqBytes = Encoding.UTF8.GetBytes(payload);
-            req.ContentType = "application/json";
+            req.Headers.Remove("accept");
+            req.Headers.Add("accept", "application/json;odata.metadata=none;");
             req.Method = "POST";
             req.Body = new MemoryStream();
             await req.Body.WriteAsync(reqBytes, 0, reqBytes.Length);
@@ -143,7 +145,7 @@ namespace graphqlodata.Middlewares
             var parsedQuery = new RequestNodeInput();
             hasMultipleRequests = false;
 
-            foreach (var definition in ast.Definitions.Take(1))
+            foreach (var definition in ast.Definitions.OfType<GraphQLOperationDefinition>())
             {
                 if (definition is GraphQLOperationDefinition gqlOpDef)
                 {
@@ -161,7 +163,7 @@ namespace graphqlodata.Middlewares
             {
                 //todo: move serialize batch request here
             }
-            
+
             return parsedQuery;
         }
 
@@ -170,7 +172,7 @@ namespace graphqlodata.Middlewares
         {
             BatchRequestObject batchRequest = new BatchRequestObject();
 
-            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, index) => (index, value) ))
+            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, index) => (index, value)))
             {
                 var nodeName = qryNode.value.Name.Value;
                 //todo: check if query/mutation to determine request method - probably not possible in graphql to combine query and mutation in same request
@@ -193,7 +195,7 @@ namespace graphqlodata.Middlewares
                     url = requestInput.QueryString,
                     headers = new Dictionary<string, string>
                     {
-                        { "content-type", "application/json; odata.metadata=none; odata.streaming=true" },
+                        { "accept", "application/json; odata.metadata=none; odata.streaming=true" },
                         { "odata-version", "4.0" },
                     }
                 });
@@ -225,8 +227,8 @@ namespace graphqlodata.Middlewares
                 if (QueryIsFunctionType(nodeName))
                 {
                     var selectedFields = VisitRequestNode(qryNode, GQLRequestType.Function);
-                    selectedFields.Name = $"{nodeName}({selectedFields.QueryString})";
-                    selectedFields.QueryString = null;
+                    selectedFields.Name = $"{nodeName}({selectedFields.Path})";
+                    selectedFields.QueryString = $"?$select={selectedFields.QueryString}";
                     return selectedFields;
                 }
                 else
@@ -352,7 +354,7 @@ namespace graphqlodata.Middlewares
             }
 
             var argString = VisitArgs(fieldSelection.Arguments, requestType);
-            
+
             if (requestType == GQLRequestType.Mutation)
             {
                 //todo: return nodefields as well
@@ -378,7 +380,7 @@ namespace graphqlodata.Middlewares
                 var expandString = string.Join(",", expandItems.Where(s => !string.IsNullOrEmpty(s)));
                 expandString = expandItems.Any() ? "$expand=" + expandString : "";
                 var queryStringParts = new[]
-                { 
+                {
                     fullSelectString,
                     expandString,
                 }
@@ -391,7 +393,7 @@ namespace graphqlodata.Middlewares
                 };
             }
             return default;
-            
+
         }
 
         private string VisitNodeFields(GraphQLFieldSelection fieldSelection)
