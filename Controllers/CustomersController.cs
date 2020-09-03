@@ -21,7 +21,7 @@ namespace graphqlodata.Controllers
 
         public IQueryable<Customer> Get()
         {
-            return _customerRepository.GetCustomers().AsQueryable();
+            return _customerRepository.GetCustomers();
         }
 
         public IActionResult Get([FromODataUri]int key)

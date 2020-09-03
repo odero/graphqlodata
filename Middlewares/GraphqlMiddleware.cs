@@ -1,4 +1,4 @@
-using GraphQLParser;
+﻿using GraphQLParser;
 using GraphQLParser.AST;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
@@ -57,20 +57,25 @@ namespace graphqlodata.Middlewares
             {
                 graphQLQuery = await ReadRequestBody(req);
             }
+            List<string> requestNames = new List<string>();
             if (!string.IsNullOrWhiteSpace(graphQLQuery))
             {
-                await ConvertGraphQLtoODataQuery(req, graphQLQuery);
+                await ConvertGraphQLtoODataQuery(req, graphQLQuery, requestNames);
             }
-            
+
+            var originalBody = context.Response.Body;
+            context.Response.Body = new MemoryStream();  // set to MemoryStream so that it is seekable later on
+
             await _next(context);
             //response pipeline
+            await ReadResponseBody(context.Response, originalBody, requestNames);
             Console.WriteLine("We wrote after _next");
         }
 
-        private async Task ConvertGraphQLtoODataQuery(HttpRequest req, string graphQLQuery)
+        private async Task ConvertGraphQLtoODataQuery(HttpRequest req, string graphQLQuery, IList<string> requestNames)
         {
             //Convert graphql syntax
-            RequestNodeInput parsedQuery = ParseGraphql(graphQLQuery, out bool isBatch);
+            RequestNodeInput parsedQuery = ParseGraphql(graphQLQuery, out bool isBatch, requestNames);
             //todo: build req path prefix
             var pathPrefix = "odata";
 
@@ -103,9 +108,36 @@ namespace graphqlodata.Middlewares
             req.Headers.Add("accept", "application/json;odata.metadata=none");
         }
 
-        private async Task<string> ReadResponseBody(HttpResponse res)
+        private async Task<string> ReadResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
         {
+            res.Body.Position = 0;
+            var newContent = ReformatResponse(new StreamReader(res.Body).ReadToEnd(), requestNames);
+            res.Body = existingBody; // because this must be type HttpResponseStream that's internal to Kestrel
+            await res.WriteAsync(newContent);
             return default;
+        }
+
+        string ReformatResponse(string currentResponse, IList<string> gqlQueryNames)
+        {
+            // if key is value; means single query returning entityset
+            // if key is responses; means batch query
+            // else single object query returning single object/entity
+            var parsed = JObject.Parse(currentResponse);
+            var obj = new JObject();
+            if (parsed.SelectToken("responses") is JToken token)
+            {
+                for (var i = 0; i < token.Count(); i++)
+                {
+                    var body = token[i]["body"];
+                    obj.Add(gqlQueryNames[i], body?.SelectToken("value") ?? body);
+                }
+            }
+            else
+            {
+                obj.Add(gqlQueryNames.First(), parsed.SelectToken("value") ?? parsed);
+            }
+            JObject finalRes = JObject.FromObject(new { data = obj });
+            return finalRes.ToString();
         }
 
         private async Task<string> ReadRequestBody(HttpRequest req)
@@ -127,7 +159,7 @@ namespace graphqlodata.Middlewares
             req.Body.Position = 0;
         }
 
-        private RequestNodeInput ParseGraphql(string queryString, out bool hasMultipleRequests)
+        private RequestNodeInput ParseGraphql(string queryString, out bool hasMultipleRequests, IList<string> requestNames)
         {
             var query = JsonConvert.DeserializeObject<GraphQLQuery>(queryString);
             //todo: we want to avoid having field scoped variables in middleware
@@ -141,7 +173,7 @@ namespace graphqlodata.Middlewares
             {
                 throw new InvalidOperationException("Multiple operations at root level not allowed");
             }
-
+            
             var parsedQuery = new RequestNodeInput();
             hasMultipleRequests = false;
 
@@ -151,7 +183,7 @@ namespace graphqlodata.Middlewares
                 {
                     if (gqlOpDef.Operation == OperationType.Query)
                     {
-                        parsedQuery = VisitQuery(gqlOpDef, out hasMultipleRequests);
+                        parsedQuery = VisitQuery(gqlOpDef, out hasMultipleRequests, requestNames);
                     }
                     else if (gqlOpDef.Operation == OperationType.Mutation)
                     {
@@ -168,13 +200,15 @@ namespace graphqlodata.Middlewares
         }
 
 
-        private string BuildJsonBatchRequest(GraphQLSelectionSet selectionSet)
+        private string BuildJsonBatchRequest(GraphQLSelectionSet selectionSet, IList<string> requestNames = null)
         {
             BatchRequestObject batchRequest = new BatchRequestObject();
 
             foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, index) => (index, value)))
             {
                 var nodeName = qryNode.value.Name.Value;
+                requestNames.Add(nodeName);
+
                 //todo: check if query/mutation to determine request method - probably not possible in graphql to combine query and mutation in same request
                 RequestNodeInput requestInput;
 
@@ -204,12 +238,12 @@ namespace graphqlodata.Middlewares
             return res;
         }
 
-        private RequestNodeInput VisitQuery(GraphQLOperationDefinition gqlQuery, out bool isBatch)
+        private RequestNodeInput VisitQuery(GraphQLOperationDefinition gqlQuery, out bool isBatch, IList<string> requestNames)
         {
             //visit nodes
             if (gqlQuery.SelectionSet.Selections.Count > 1)
             {
-                var jsonRequest = BuildJsonBatchRequest(gqlQuery.SelectionSet);
+                var jsonRequest = BuildJsonBatchRequest(gqlQuery.SelectionSet, requestNames);
                 isBatch = true;
 
                 return new RequestNodeInput
@@ -223,6 +257,7 @@ namespace graphqlodata.Middlewares
                 isBatch = false;
                 var qryNode = gqlQuery.SelectionSet.Selections.Single() as GraphQLFieldSelection;
                 var nodeName = qryNode.Name.Value;
+                requestNames.Add(nodeName);
 
                 if (QueryIsFunctionType(nodeName))
                 {
@@ -407,6 +442,7 @@ namespace graphqlodata.Middlewares
         {
             if (gqlMutation.SelectionSet.Selections.Count > 1)
             {
+                //todo: add requestNames param here
                 var jsonRequest = BuildJsonBatchRequest(gqlMutation.SelectionSet);
                 isBatch = true;
                 return new RequestNodeInput

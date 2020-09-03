@@ -40,7 +40,7 @@ namespace graphqlodata.Controllers
         [ODataRoute("GetSomeBook(title={mytitle})")]
         public Book GetSomeBook([FromODataUri] string mytitle)
         {
-            return _booksRepository.GetBooks().Last();
+            return _booksRepository.GetBooks().Where(b => b.Title.Equals(mytitle)).FirstOrDefault();
         }
     }
 }

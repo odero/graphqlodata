@@ -11,7 +11,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+//using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -56,7 +56,7 @@ namespace graphqlodata
 
             app.UseEndpoints(endpoints =>
             {
-                endpoints.Filter().Expand().Select();
+                endpoints.Filter().Expand().Select().MaxTop(50);
                 endpoints.MapODataRoute("odata", "odata", GetEdmModel(), new DefaultODataBatchHandler());
             });
         }
