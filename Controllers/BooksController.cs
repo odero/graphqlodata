@@ -5,6 +5,7 @@ using Microsoft.AspNet.OData.Routing;
 using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace graphqlodata.Controllers
 {
@@ -38,9 +39,10 @@ namespace graphqlodata.Controllers
             return book;
         }
         [ODataRoute("GetSomeBook(title={mytitle})")]
-        public Book GetSomeBook([FromODataUri] string mytitle)
+        public IActionResult GetSomeBook([FromODataUri] string mytitle)
         {
-            return _booksRepository.GetBooks().Where(b => b.Title.Equals(mytitle)).FirstOrDefault();
+            var res = _booksRepository.GetBooks().Where(b => b.Title.Equals(mytitle)).FirstOrDefault();
+            return res == null ? (IActionResult)NotFound() : Ok(res);
         }
     }
 }

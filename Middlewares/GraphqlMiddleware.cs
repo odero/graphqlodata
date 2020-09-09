@@ -1,5 +1,6 @@
 ﻿using GraphQLParser;
 using GraphQLParser.AST;
+using Microsoft.AspNet.OData.Extensions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.OData.Edm;
@@ -32,10 +33,12 @@ namespace graphqlodata.Middlewares
         //todo: store _variables inside request context not as a field
         private IDictionary<string, object> _variables = new Dictionary<string, object>();
         private Lazy<IEdmModel> _model;
+        private Dictionary<string, GraphQLFragmentDefinition> _fragments;
 
         public GraphqlODataMiddleware(RequestDelegate next)
         {
             _next = next;
+            _fragments = new Dictionary<string, GraphQLFragmentDefinition>();
             _model = new Lazy<IEdmModel>(() =>
             {
                 return ReadModel();
@@ -57,7 +60,10 @@ namespace graphqlodata.Middlewares
             {
                 graphQLQuery = await ReadRequestBody(req);
             }
-            List<string> requestNames = new List<string>();
+
+            var requestNames = new List<string>();
+
+
             if (!string.IsNullOrWhiteSpace(graphQLQuery))
             {
                 await ConvertGraphQLtoODataQuery(req, graphQLQuery, requestNames);
@@ -173,7 +179,12 @@ namespace graphqlodata.Middlewares
             {
                 throw new InvalidOperationException("Multiple operations at root level not allowed");
             }
-            
+
+            foreach (var frag in ast.Definitions.OfType<GraphQLFragmentDefinition>())
+            {
+                _fragments[frag.Name.Value] = frag;
+            }
+
             var parsedQuery = new RequestNodeInput();
             hasMultipleRequests = false;
 
@@ -374,18 +385,31 @@ namespace graphqlodata.Middlewares
             var nodeFields = new List<string>();
             var expandItems = new List<string>();
 
-            foreach (var field in fieldSelection.SelectionSet.Selections.OfType<GraphQLFieldSelection>())
+            foreach (var node in fieldSelection.SelectionSet.Selections)
             {
-                RequestNodeInput expandField = null;
-                if (field.SelectionSet?.Selections.Any() == true)
+                if (node is GraphQLFragmentSpread fragField)
                 {
-                    expandField = VisitRequestNode(field);
-                    var expandString = $"{field.Name.Value}($select={expandField.QueryString})";
-                    expandItems.Add(expandString);
-                    continue;
+                    var frag = _fragments[fragField.Name.Value];
+
+                    if (frag.SelectionSet?.Selections.Any() == true)
+                    {
+                        var fields = frag.SelectionSet?.Selections.OfType<GraphQLFieldSelection>().Select(f => f.Name.Value);
+                        nodeFields.AddRange(fields);
+                    }
                 }
-                var visitedField = VisitNodeFields(field as GraphQLFieldSelection);
-                nodeFields.Add(visitedField);
+                else if (node is GraphQLFieldSelection field)
+                {
+                    RequestNodeInput expandField = null;
+                    if (field.SelectionSet?.Selections.Any() == true)
+                    {
+                        expandField = VisitRequestNode(field);
+                        var expandString = $"{field.Name.Value}($select={expandField.QueryString})";
+                        expandItems.Add(expandString);
+                        continue;
+                    }
+                    var visitedField = VisitNodeFields(node as GraphQLFieldSelection);
+                    nodeFields.Add(visitedField);
+                }
             }
 
             var argString = VisitArgs(fieldSelection.Arguments, requestType);
