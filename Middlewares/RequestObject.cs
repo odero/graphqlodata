@@ -4,9 +4,9 @@ namespace graphqlodata.Middlewares
 {
     class RequestObject
     {
-        public string? id { get; set; }
-        public string method { get; set; }
-        public string url { get; set; }
-        public Dictionary<string, string> headers { get; set; }
+        public string? Id { get; set; }
+        public string Method { get; set; }
+        public string Url { get; set; }
+        public Dictionary<string, string> Headers { get; set; }
     }
 }
