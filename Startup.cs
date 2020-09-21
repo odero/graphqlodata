@@ -65,8 +65,9 @@ namespace graphqlodata
         {
             var builder = new ODataConventionModelBuilder();
             builder.EntitySet<Book>("Books");
-            builder.EntitySet<Customer>("Customers");
-            var action = builder.Action("AddBook").ReturnsFromEntitySet<Book>("Books");
+            var customers = builder.EntitySet<Customer>("Customers");
+            var action = builder.Action("AddBook");
+            action.ReturnsFromEntitySet<Book>("Books");
             action.Parameter<int>("id");
             action.Parameter<string>("author");
             action.Parameter<string>("title");

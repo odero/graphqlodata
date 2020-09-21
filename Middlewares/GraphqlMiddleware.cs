@@ -36,7 +36,6 @@ namespace graphqlodata.Middlewares
                 await _next(context);
                 return;
             }
-
             var requestHandler = new RequestHandler(req);
             var responseHandler = new ResponseHandler();
             var requestNames = new List<string>();

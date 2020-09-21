@@ -11,6 +11,10 @@ namespace graphqlodata.Models
 
         public List<Book> Books { get; set; }
 
+        public Book FavoriteBook { get; set; }
+
+        public Address MainAddress { get; set; }
+
         public List<Address> Addresses { get; set; }
     }
 }

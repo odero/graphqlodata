@@ -10,11 +10,20 @@ using System.Threading.Tasks;
 
 namespace graphqlodata.Middlewares
 {
+    class BuildParts
+    {
+        public IList<string> SelectFields { get; set; }
+        public IList<string> ExpandFields { get; set; }
+    }
+
     public class GraphQLExpressionVisitor
     {
         private readonly IEdmModel _model;
         private readonly IDictionary<string, object> _variables;
         private readonly IDictionary<string, GraphQLFragmentDefinition> _fragments;
+        //private List<string> nodeFields = new List<string>();
+        //private List<string> expandItems = new List<string>();
+
 
         public GraphQLExpressionVisitor(IEdmModel model, IDictionary<string, object> variables, IDictionary<string, GraphQLFragmentDefinition> fragments)
         {
@@ -46,20 +55,35 @@ namespace graphqlodata.Middlewares
 
                 if (QueryIsFunctionType(_model, nodeName))
                 {
-                    var selectedFields = VisitRequestNode(qryNode, GQLRequestType.Function);
-                    selectedFields.Name = $"{nodeName}({selectedFields.Path})";
-                    selectedFields.QueryString = $"?$select={selectedFields.QueryString}";
-                    return selectedFields;
+                    var selectedFields = VisitRequestNode(qryNode, null, GQLRequestType.Function);
+                    //selectedFields.Name = $"{nodeName}({selectedFields.Path})";
+                    //selectedFields.QueryString = $"?$select={selectedFields.QueryString}";
+                    //return selectedFields;
+                    return default;
                 }
                 else
                 {
-                    var selectedFields = VisitRequestNode(qryNode);
-                    selectedFields.Name = nodeName;
-                    selectedFields.QueryString = $"?$select={selectedFields.QueryString}";
-                    return selectedFields;
+                    var selectedFields = VisitRequestNode(qryNode, _model.EntityContainer.FindEntitySet(nodeName).EntityType());
+                    var fullString = BuildSelectExpandURL(selectedFields);
+
+                    return new RequestNodeInput
+                    {
+                        Name = qryNode.Name.Value,
+                        QueryString = fullString,
+                        RequestType = GQLRequestType.Query,
+                    };
+                    //return default;
                 }
             }
         }
+
+        private string BuildSelectExpandURL(BuildParts parts)
+        {
+            var selectString = BuildSelectFromParts(parts.SelectFields);
+            var expandString = BuildExpandFromParts(parts.ExpandFields);
+            return $"?$select={selectString}&$expand={expandString}";
+        }
+
         private string VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
         {
             var argList = new List<string>();
@@ -140,7 +164,7 @@ namespace graphqlodata.Middlewares
             return "";
         }
 
-        private RequestNodeInput VisitRequestNode(GraphQLFieldSelection fieldSelection, GQLRequestType requestType = GQLRequestType.Query)
+        private BuildParts VisitRequestNode(GraphQLFieldSelection fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType = GQLRequestType.Query)
         {
             var nodeFields = new List<string>();
             var expandItems = new List<string>();
@@ -159,15 +183,50 @@ namespace graphqlodata.Middlewares
                 }
                 else if (node is GraphQLFieldSelection field)
                 {
-                    RequestNodeInput expandField = null;
+                    BuildParts buildParts = null;
                     if (field.SelectionSet?.Selections.Any() == true)
                     {
-                        expandField = VisitRequestNode(field);
-                        var expandString = $"{field.Name.Value}($select={expandField.QueryString})";
-                        expandItems.Add(expandString);
-                        continue;
+                        // todo: handling different kinds of nav props - single nav/multi nav/complex type
+                        if (structuredType?
+                            .NavigationProperties()?
+                            .FirstOrDefault(p => p.Name == field.Name.Value)?
+                            .ToEntityType() is IEdmStructuredType navPropType)
+                        {
+                            // must be a nav prop which requires expand
+                            buildParts = VisitRequestNode(field, navPropType);
+                            
+                            if (structuredType.TypeKind == EdmTypeKind.Complex)
+                            {
+                                nodeFields.Add($"{fieldSelection.Name.Value}/{field.Name.Value}");
+                                expandItems.Add($"{fieldSelection.Name.Value}/{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields)})");
+                            }
+                            else
+                            {
+                                expandItems.Add($"{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields)})");
+                            }
+                            continue;
+                        }
+                        else
+                        {
+                            // must be a complex type/single prop which is accessed by path
+                            var propType = structuredType.StructuralProperties()?.FirstOrDefault(p => p.Name == field.Name.Value).Type;
+                            
+                            if (propType?.IsComplex() == true || propType?.IsCollection() == true)
+                            {
+                                var structType = propType.ToStructuredType();
+                                var parts = VisitRequestNode(field, structType);
+                                nodeFields.AddRange(parts.SelectFields);
+                                expandItems.AddRange(parts.ExpandFields);
+                                continue;
+                            }
+                        }
+                        
                     }
                     var visitedField = VisitNodeFields(node as GraphQLFieldSelection);
+                    if (structuredType.TypeKind == EdmTypeKind.Complex)
+                    {
+                        visitedField = $"{fieldSelection.Name.Value}/{visitedField}";
+                    }
                     nodeFields.Add(visitedField);
                 }
             }
@@ -177,42 +236,60 @@ namespace graphqlodata.Middlewares
             if (requestType == GQLRequestType.Mutation)
             {
                 //todo: return nodefields as well
-                return new RequestNodeInput
-                {
-                    QueryString = string.Join(",", nodeFields),
-                    Body = argString,
-                };
+                //return new RequestNodeInput
+                //{
+                //    QueryString = string.Join(",", nodeFields),
+                //    Body = argString,
+                //};
             }
             else if (requestType == GQLRequestType.Function)
             {
-                return new RequestNodeInput
-                {
-                    Path = argString,
-                    RequestType = requestType,
-                    QueryString = string.Join(",", nodeFields),
-                };
+                //return new RequestNodeInput
+                //{
+                //    Path = argString,
+                //    RequestType = requestType,
+                //    QueryString = string.Join(",", nodeFields),
+                //};
             }
             else if (requestType == GQLRequestType.Query)
             {
-                var selectFieldString = string.Join(",", nodeFields);
-                var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
-                var expandString = string.Join(",", expandItems.Where(s => !string.IsNullOrEmpty(s)));
-                expandString = expandItems.Any() ? "$expand=" + expandString : "";
-                var queryStringParts = new[]
-                {
-                    fullSelectString,
-                    expandString,
-                }
-                .Where(s => !string.IsNullOrEmpty(s));
+                //var selectFieldString = string.Join(",", nodeFields);
+                //var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
+                //var expandString = string.Join(",", expandItems.Where(s => !string.IsNullOrEmpty(s)));
+                //expandString = expandItems.Any() ? "$expand=" + expandString : "";
+                //var queryStringParts = new[]
+                //{
+                //    fullSelectString,
+                //    expandString,
+                //}
+                //.Where(s => !string.IsNullOrEmpty(s));
 
-                return new RequestNodeInput
+                //return new RequestNodeInput
+                //{
+                //    QueryString = string.Join("&", queryStringParts),
+                //    RequestType = requestType,
+                //};
+                return new BuildParts
                 {
-                    QueryString = string.Join("&", queryStringParts),
-                    RequestType = requestType,
+                    ExpandFields = expandItems,
+                    SelectFields = nodeFields,
                 };
             }
             return default;
 
+        }
+
+        private string BuildSelectFromParts(IList<string> parts, string argString = null)
+        {
+            var selectFieldString = string.Join(",", parts);
+            var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
+            return fullSelectString;
+        }
+
+        private string BuildExpandFromParts(IList<string> parts)
+        {
+            var expandString = string.Join(",", parts.Where(s => !string.IsNullOrEmpty(s)));
+            return expandString;
         }
 
         private string VisitNodeFields(GraphQLFieldSelection fieldSelection)
@@ -238,10 +315,11 @@ namespace graphqlodata.Middlewares
                 isBatch = false;
                 var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLFieldSelection;
                 //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
-                var requestInput = VisitRequestNode(mutationNode, GQLRequestType.Mutation);
-                requestInput.Name = mutationNode.Name.Value;
-                requestInput.QueryString = $"?$select={requestInput.QueryString}";
-                return requestInput;
+                var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
+                //requestInput.Name = mutationNode.Name.Value;
+                //requestInput.QueryString = $"?$select={requestInput.QueryString}";
+                //return requestInput;
+                return default;
             }
         }
 
@@ -261,18 +339,18 @@ namespace graphqlodata.Middlewares
                 requestNames.Add(nodeName);
 
                 //todo: check if query/mutation to determine request method - probably not possible in graphql to combine query and mutation in same request
-                RequestNodeInput requestInput;
+                RequestNodeInput requestInput = null;
 
-                if (QueryIsFunctionType(_model, nodeName))
-                {
-                    requestInput = VisitRequestNode(qryNode.value, GQLRequestType.Function);
-                    requestInput.QueryString = $"{nodeName}({requestInput.Path})?$select={requestInput.QueryString}";
-                }
-                else
-                {
-                    requestInput = VisitRequestNode(qryNode.value);
-                    requestInput.QueryString = $"{nodeName}/" + new QueryString($"?$select={requestInput.QueryString}");
-                }
+                //if (QueryIsFunctionType(_model, nodeName))
+                //{
+                //    requestInput = VisitRequestNode(qryNode.value, null, GQLRequestType.Function);
+                //    requestInput.QueryString = $"{nodeName}({requestInput.Path})?$select={requestInput.QueryString}";
+                //}
+                //else
+                //{
+                //    requestInput = VisitRequestNode(qryNode.value, null);
+                //    requestInput.QueryString = $"{nodeName}/" + new QueryString($"?$select={requestInput.QueryString}");
+                //}
                 batchRequest.Requests.Add(new RequestObject
                 {
                     Id = $"{qryNode.index + 1}",

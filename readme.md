@@ -12,3 +12,4 @@ A middleware translates graphql to odata
 - [ ] generate custom filtering options per field e.g. for playground and hasura
 - [x] response pipeline to reformat odata response to graphql response
 - [ ] generate graphql schema from odata schema to allow graphql introspection by tools like graphiql
+- [ ] handling nav props - single/multi/complex type
