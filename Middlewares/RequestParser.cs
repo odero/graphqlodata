@@ -93,7 +93,7 @@ namespace graphqlodata.Middlewares
                     }
                     else if (gqlOpDef.Operation == OperationType.Mutation)
                     {
-                        parsedQuery = _visitor.VisitMutation(gqlOpDef, out hasMultipleRequests);
+                        parsedQuery = _visitor.VisitMutation(gqlOpDef, out hasMultipleRequests, requestNames);
                     }
                 }
             }

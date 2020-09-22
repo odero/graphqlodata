@@ -1,12 +1,10 @@
 ﻿using GraphQLParser.AST;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.OData.Edm;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace graphqlodata.Middlewares
 {
@@ -14,6 +12,8 @@ namespace graphqlodata.Middlewares
     {
         public IList<string> SelectFields { get; set; }
         public IList<string> ExpandFields { get; set; }
+
+        public string QueryArgs { get; set; }
     }
 
     public class GraphQLExpressionVisitor
@@ -21,9 +21,6 @@ namespace graphqlodata.Middlewares
         private readonly IEdmModel _model;
         private readonly IDictionary<string, object> _variables;
         private readonly IDictionary<string, GraphQLFragmentDefinition> _fragments;
-        //private List<string> nodeFields = new List<string>();
-        //private List<string> expandItems = new List<string>();
-
 
         public GraphQLExpressionVisitor(IEdmModel model, IDictionary<string, object> variables, IDictionary<string, GraphQLFragmentDefinition> fragments)
         {
@@ -53,35 +50,45 @@ namespace graphqlodata.Middlewares
                 var nodeName = qryNode.Name.Value;
                 requestNames.Add(nodeName);
 
-                if (QueryIsFunctionType(_model, nodeName))
-                {
-                    var selectedFields = VisitRequestNode(qryNode, null, GQLRequestType.Function);
-                    //selectedFields.Name = $"{nodeName}({selectedFields.Path})";
-                    //selectedFields.QueryString = $"?$select={selectedFields.QueryString}";
-                    //return selectedFields;
-                    return default;
-                }
-                else
-                {
-                    var selectedFields = VisitRequestNode(qryNode, _model.EntityContainer.FindEntitySet(nodeName).EntityType());
-                    var fullString = BuildSelectExpandURL(selectedFields);
+                return BuildQueryOrFunction(qryNode);
+            }
+        }
 
-                    return new RequestNodeInput
-                    {
-                        Name = qryNode.Name.Value,
-                        QueryString = fullString,
-                        RequestType = GQLRequestType.Query,
-                    };
-                    //return default;
-                }
+        private RequestNodeInput BuildQueryOrFunction(GraphQLFieldSelection queryNode)
+        {
+            string nodeName = queryNode.Name.Value;
+            if (QueryIsFunctionType(_model, nodeName))
+            {
+                var selectedFields = VisitRequestNode(queryNode, null, GQLRequestType.Function);
+                var fullString = BuildSelectExpandURL(selectedFields);
+
+                return new RequestNodeInput
+                {
+                    Name = $"{nodeName}({selectedFields.QueryArgs})",
+                    QueryString = fullString,
+                    RequestType = GQLRequestType.Query,
+                };
+
+            }
+            else
+            {
+                var selectedFields = VisitRequestNode(queryNode, _model.EntityContainer.FindEntitySet(nodeName).EntityType());
+                var fullString = BuildSelectExpandURL(selectedFields);
+
+                return new RequestNodeInput
+                {
+                    Name = queryNode.Name.Value,
+                    QueryString = fullString,
+                    RequestType = GQLRequestType.Query,
+                };
             }
         }
 
         private string BuildSelectExpandURL(BuildParts parts)
         {
             var selectString = BuildSelectFromParts(parts.SelectFields);
-            var expandString = BuildExpandFromParts(parts.ExpandFields);
-            return $"?$select={selectString}&$expand={expandString}";
+            var expandString = parts.ExpandFields.Any() ? "$expand=" + BuildExpandFromParts(parts.ExpandFields) : "";
+            return $"?$select={selectString}{expandString}";
         }
 
         private string VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
@@ -194,7 +201,7 @@ namespace graphqlodata.Middlewares
                         {
                             // must be a nav prop which requires expand
                             buildParts = VisitRequestNode(field, navPropType);
-                            
+
                             if (structuredType.TypeKind == EdmTypeKind.Complex)
                             {
                                 nodeFields.Add($"{fieldSelection.Name.Value}/{field.Name.Value}");
@@ -210,7 +217,7 @@ namespace graphqlodata.Middlewares
                         {
                             // must be a complex type/single prop which is accessed by path
                             var propType = structuredType.StructuralProperties()?.FirstOrDefault(p => p.Name == field.Name.Value).Type;
-                            
+
                             if (propType?.IsComplex() == true || propType?.IsCollection() == true)
                             {
                                 var structType = propType.ToStructuredType();
@@ -220,10 +227,10 @@ namespace graphqlodata.Middlewares
                                 continue;
                             }
                         }
-                        
+
                     }
                     var visitedField = VisitNodeFields(node as GraphQLFieldSelection);
-                    if (structuredType.TypeKind == EdmTypeKind.Complex)
+                    if (structuredType?.TypeKind == EdmTypeKind.Complex)
                     {
                         visitedField = $"{fieldSelection.Name.Value}/{visitedField}";
                     }
@@ -233,42 +240,28 @@ namespace graphqlodata.Middlewares
 
             var argString = VisitArgs(fieldSelection.Arguments, requestType);
 
+            // todo: can possibly combine all these and get rid of the if/else
             if (requestType == GQLRequestType.Mutation)
             {
-                //todo: return nodefields as well
-                //return new RequestNodeInput
-                //{
-                //    QueryString = string.Join(",", nodeFields),
-                //    Body = argString,
-                //};
+                return new BuildParts
+                {
+                    QueryArgs = argString,
+                    ExpandFields = expandItems,
+                    SelectFields = nodeFields,
+                };
+
             }
             else if (requestType == GQLRequestType.Function)
             {
-                //return new RequestNodeInput
-                //{
-                //    Path = argString,
-                //    RequestType = requestType,
-                //    QueryString = string.Join(",", nodeFields),
-                //};
+                return new BuildParts
+                {
+                    QueryArgs = argString,
+                    ExpandFields = expandItems,
+                    SelectFields = nodeFields,
+                };
             }
             else if (requestType == GQLRequestType.Query)
             {
-                //var selectFieldString = string.Join(",", nodeFields);
-                //var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
-                //var expandString = string.Join(",", expandItems.Where(s => !string.IsNullOrEmpty(s)));
-                //expandString = expandItems.Any() ? "$expand=" + expandString : "";
-                //var queryStringParts = new[]
-                //{
-                //    fullSelectString,
-                //    expandString,
-                //}
-                //.Where(s => !string.IsNullOrEmpty(s));
-
-                //return new RequestNodeInput
-                //{
-                //    QueryString = string.Join("&", queryStringParts),
-                //    RequestType = requestType,
-                //};
                 return new BuildParts
                 {
                     ExpandFields = expandItems,
@@ -297,12 +290,12 @@ namespace graphqlodata.Middlewares
             return fieldSelection.Name.Value;
         }
 
-        internal RequestNodeInput VisitMutation(GraphQLOperationDefinition gqlMutation, out bool isBatch)
+        internal RequestNodeInput VisitMutation(GraphQLOperationDefinition gqlMutation, out bool isBatch, IList<string> requestNames)
         {
             if (gqlMutation.SelectionSet.Selections.Count > 1)
             {
                 //todo: add requestNames param here
-                var jsonRequest = BuildJsonBatchRequest(gqlMutation.SelectionSet);
+                var jsonRequest = BuildJsonBatchRequest(gqlMutation.SelectionSet, requestNames);
                 isBatch = true;
                 return new RequestNodeInput
                 {
@@ -316,10 +309,19 @@ namespace graphqlodata.Middlewares
                 var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLFieldSelection;
                 //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
                 var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
-                //requestInput.Name = mutationNode.Name.Value;
-                //requestInput.QueryString = $"?$select={requestInput.QueryString}";
-                //return requestInput;
-                return default;
+                var nodeName = mutationNode.Name.Value;
+                requestNames.Add(nodeName);
+
+                var fullString = BuildSelectExpandURL(requestInput);
+
+                return new RequestNodeInput
+                {
+                    Name = mutationNode.Name.Value,
+                    QueryString = fullString,
+                    Body = requestInput.QueryArgs,
+                    RequestType = GQLRequestType.Mutation,
+                };
+
             }
         }
 
@@ -338,19 +340,10 @@ namespace graphqlodata.Middlewares
                 var nodeName = qryNode.value.Name.Value;
                 requestNames.Add(nodeName);
 
-                //todo: check if query/mutation to determine request method - probably not possible in graphql to combine query and mutation in same request
-                RequestNodeInput requestInput = null;
+                //todo: check if query/mutation to determine request method - not possible in graphql to combine query and mutation in same request
+                RequestNodeInput requestInput = BuildQueryOrFunction(qryNode.value);
+                requestInput.QueryString = $"{requestInput.Name}{requestInput.QueryString}";
 
-                //if (QueryIsFunctionType(_model, nodeName))
-                //{
-                //    requestInput = VisitRequestNode(qryNode.value, null, GQLRequestType.Function);
-                //    requestInput.QueryString = $"{nodeName}({requestInput.Path})?$select={requestInput.QueryString}";
-                //}
-                //else
-                //{
-                //    requestInput = VisitRequestNode(qryNode.value, null);
-                //    requestInput.QueryString = $"{nodeName}/" + new QueryString($"?$select={requestInput.QueryString}");
-                //}
                 batchRequest.Requests.Add(new RequestObject
                 {
                     Id = $"{qryNode.index + 1}",

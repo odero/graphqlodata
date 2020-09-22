@@ -10,13 +10,12 @@ namespace graphqlodata.Middlewares
 {
     public class ResponseHandler
     {
-        internal async Task<string> UpdateResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
+        internal async Task UpdateResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
         {
             res.Body.Position = 0;
             var newContent = ReformatResponse(new StreamReader(res.Body).ReadToEnd(), requestNames);
             res.Body = existingBody; // because this must be type HttpResponseStream that's internal to Kestrel
             await res.WriteAsync(newContent);
-            return default;
         }
 
         private string ReformatResponse(string currentResponse, IList<string> gqlQueryNames)
