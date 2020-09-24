@@ -88,7 +88,8 @@ namespace graphqlodata.Middlewares
         {
             var selectString = BuildSelectFromParts(parts.SelectFields);
             var expandString = parts.ExpandFields.Any() ? "$expand=" + BuildExpandFromParts(parts.ExpandFields) : "";
-            return $"?$select={selectString}{expandString}";
+            var filterString = string.IsNullOrEmpty(parts.QueryArgs) ? "" : "&" + parts.QueryArgs;
+            return $"?$select={selectString}{expandString}{filterString}";
         }
 
         private string VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
@@ -126,6 +127,10 @@ namespace graphqlodata.Middlewares
                         {
                             argValue = arg.Value.ToString();
                         }
+                        else if (arg.Value is GraphQLObjectValue obj)
+                        {
+                            argValue = VisitObject(obj);
+                        }
                     }
                     if (requestType == GQLRequestType.Mutation)
                     {
@@ -147,7 +152,14 @@ namespace graphqlodata.Middlewares
                             }
                             else
                             {
-                                filterArgs.Add($"{arg.Name.Value} eq {argValue}");
+                                if (arg.Name.Value == "filter")
+                                {
+                                    filterArgs.Add((string)argValue);
+                                }
+                                else
+                                {
+                                    filterArgs.Add($"{arg.Name.Value} eq {argValue}");
+                                }
                             }
                         }
                     }
@@ -169,6 +181,93 @@ namespace graphqlodata.Middlewares
                 return JsonConvert.SerializeObject(kvPairs);
             }
             return "";
+        }
+
+        private string VisitObject(GraphQLValue value, string op=" and ")
+        {
+            string query = "";
+            var queries = new List<string>();
+            if (value is GraphQLObjectValue objValue)
+            {
+                foreach (var field in objValue.Fields)
+                {
+                    switch (field.Name.Value)
+                    {
+                        case "OR":
+                        case "AND":
+                            queries.Add(VisitObject(field.Value, field.Name.Value));
+                            break;
+                        default:
+                            queries.Add(VisitStringFilter(field));
+                            break;
+                    }
+                }
+                query = string.Join(" and ", queries);
+            }
+            else if (value is GraphQLListValue listValue)
+            {
+                var parts = new List<string>();
+                foreach (var item in listValue.Values)
+                {
+                    parts.Add(VisitObject(item));
+                }
+                query = string.Join($" {op} ", parts);
+            }
+            return query;
+        }
+
+        private string VisitStringFilter(GraphQLObjectField field)
+        {
+            var fieldName = field.Name.Value;
+            if (fieldName.EndsWith("_in"))
+            {
+                var valueList = field.Value as GraphQLListValue;
+                return string.Concat(
+                    fieldName.Substring(0, fieldName.LastIndexOf("_in")),
+                    " in ",
+                    string.Join(',', valueList?.Values).Select(v => $"'{v.ToString().Trim('"')}'")
+                );
+            }
+
+            var value = field.Value.ToString().Trim('"');
+            
+            if (fieldName.EndsWith("_contains"))
+            {
+                return $"contains({fieldName.Substring(0, fieldName.LastIndexOf("_contains"))}, '{value}')";
+            }
+            else if (fieldName.EndsWith("_startswith"))
+            {
+                return $"startswith({fieldName.Substring(0, fieldName.LastIndexOf("_startswith"))}, '{value}')";
+            }
+            else if (fieldName.EndsWith("_endswith"))
+            {
+                return $"endswith({fieldName.Substring(0, fieldName.LastIndexOf("_endswith"))}, '{value}')";
+            }
+            return VisitLogicalFilter(field);
+        }
+
+        private string VisitLogicalFilter(GraphQLObjectField field)
+        {
+            var value = field.Value.Kind == ASTNodeKind.IntValue ? field.Value.ToString() : $"'{field.Value.ToString().Trim('"')}'";
+            var fieldName = field.Name.Value;
+
+            if (field.Name.Value.EndsWith("_gt"))
+            {
+                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_gt"))} gt {value}";
+            }
+            else if (fieldName.EndsWith("_gte"))
+            {
+                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_gte"))} gte {value}";
+            }
+            else if (fieldName.EndsWith("_lt"))
+            {
+                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_lt"))} lt {value}";
+            }
+            else if (fieldName.EndsWith("_lte"))
+            {
+                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_lte"))} lte {value}";
+            }
+            return $"{fieldName} eq {value}";
         }
 
         private BuildParts VisitRequestNode(GraphQLFieldSelection fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType = GQLRequestType.Query)
@@ -264,6 +363,7 @@ namespace graphqlodata.Middlewares
             {
                 return new BuildParts
                 {
+                    QueryArgs = argString,
                     ExpandFields = expandItems,
                     SelectFields = nodeFields,
                 };
