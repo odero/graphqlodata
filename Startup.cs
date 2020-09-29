@@ -74,6 +74,10 @@ namespace graphqlodata
             builder.Function("GetSomeBook")
                 .ReturnsFromEntitySet<Book>("Books")
                 .Parameter<string>("title");
+            builder.Function("GetSomeComplexBook")
+                .ReturnsFromEntitySet<Book>("Books")
+                .Parameter<Address>("title");
+
             return builder.GetEdmModel();
         }
     }

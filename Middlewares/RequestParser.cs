@@ -23,7 +23,7 @@ namespace graphqlodata.Middlewares
             _requestHandler = requestHandler;
             _fragments = new Dictionary<string, GraphQLFragmentDefinition>();
             Query = JsonConvert.DeserializeObject<GraphQLQuery>(graphQLQuery);
-            _visitor = new GraphQLExpressionVisitor(model, Query.Variables, _fragments); ;
+            _visitor = new GraphQLExpressionVisitor(model, Query.Variables, _fragments);
         }
 
         internal async Task ConvertGraphQLtoODataQuery(HttpRequest req, GraphQLQuery graphQLQuery, IList<string> requestNames)
@@ -67,6 +67,7 @@ namespace graphqlodata.Middlewares
             //todo: we want to avoid having field scoped variables in middleware
             var lexer = new Lexer();
             var parser = new Parser(lexer);
+            
             var ast = parser.Parse(new Source(query.Query));
 
             // TODO: Consider additional definitions like fragments and enums

@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -12,10 +13,40 @@ namespace graphqlodata.Middlewares
     {
         internal async Task UpdateResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
         {
+            string newContent;
             res.Body.Position = 0;
-            var newContent = ReformatResponse(new StreamReader(res.Body).ReadToEnd(), requestNames);
+            if (res.StatusCode < 200 || res.StatusCode > 207)
+            {
+                //if status is not 2xx then we need to package the error
+                newContent = PackageError(res);
+                if (string.IsNullOrEmpty(res.ContentType))
+                {
+                    //this happens with a 404
+                    res.ContentType = "application/json";
+                }
+                res.StatusCode = 200;
+            }
+            else
+            {
+                newContent = ReformatResponse(new StreamReader(res.Body).ReadToEnd(), requestNames);
+            }
             res.Body = existingBody; // because this must be type HttpResponseStream that's internal to Kestrel
             await res.WriteAsync(newContent);
+        }
+
+        private string PackageError(HttpResponse res)
+        {
+            var errorBody = res.Body.Length > 0
+                ? JObject.Parse(new StreamReader(res.Body).ReadToEnd()).SelectToken("error")
+                : JObject.FromObject(new { message = res.StatusCode });
+            var errorRes = JsonConvert.SerializeObject(
+                new Dictionary<string, object>
+                {
+                    { "errors", new List<JToken> { errorBody } },
+                }
+            );
+            res.Body.Position = 0;
+            return errorRes;
         }
 
         private string ReformatResponse(string currentResponse, IList<string> gqlQueryNames)

@@ -31,7 +31,7 @@ namespace graphqlodata.Middlewares
         {
             var req = context.Request;
 
-            if (!req.Path.StartsWithSegments("/odata/graphql"))
+            if (!req.Path.StartsWithSegments("/odata/$graphql"))
             {
                 await _next(context);
                 return;
@@ -40,7 +40,7 @@ namespace graphqlodata.Middlewares
             var responseHandler = new ResponseHandler();
             var requestNames = new List<string>();
 
-            Helper.ODataSchemaPath = $"{req.Scheme}://{req.Host.Value}{req.Path.Value.Substring(0, req.Path.Value.IndexOf("/graphql"))}/$metadata";
+            Helper.ODataSchemaPath = $"{req.Scheme}://{req.Host.Value}{req.Path.Value.Substring(0, req.Path.Value.IndexOf("/$graphql"))}/$metadata";
             var parsed = await requestHandler.TryParseRequest(requestNames, _model.Value);
 
             if (!parsed)

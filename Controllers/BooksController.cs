@@ -44,5 +44,13 @@ namespace graphqlodata.Controllers
             var res = _booksRepository.GetBooks().Where(b => b.Title.Equals(mytitle)).FirstOrDefault();
             return res == null ? (IActionResult)NotFound() : Ok(res);
         }
+
+        [HttpGet]
+        [ODataRoute("GetSomeComplexBook(title={myAddress})")]
+        public IActionResult GetSomeComplexBook([FromODataUri] Address myAddress)
+        {
+            var res = _booksRepository.GetBooks().Where(b => b.Title.Equals(myAddress)).FirstOrDefault();
+            return res == null ? (IActionResult)NotFound() : Ok(res);
+        }
     }
 }
