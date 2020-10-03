@@ -443,7 +443,7 @@ namespace graphqlodata.Middlewares
                             }
                             else
                             {
-                                expandItems.Add($"{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields)})");
+                                expandItems.Add($"{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields, buildParts.QueryArgs)})");
                             }
                             continue;
                         }
@@ -485,7 +485,7 @@ namespace graphqlodata.Middlewares
         private string BuildSelectFromParts(IList<string> parts, string argString = null)
         {
             var selectFieldString = string.Join(",", parts);
-            var fullSelectString = string.Join("&", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
+            var fullSelectString = string.Join(";", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
             return fullSelectString;
         }
 
