@@ -56,7 +56,7 @@ namespace graphqlodata
 
             app.UseEndpoints(endpoints =>
             {
-                endpoints.Filter().Expand().Select().MaxTop(50);
+                endpoints.Filter().Expand().Select().MaxTop(50).OrderBy();
                 endpoints.MapODataRoute("odata", "odata", GetEdmModel(), new DefaultODataBatchHandler());
             });
         }

@@ -104,8 +104,10 @@ namespace graphqlodata.Middlewares
             var kvPairs = new Dictionary<string, object>();
             // Query args simple case is stringKey with primitive values
             var filterArgs = new List<string>();
+            var orderByArgs = new List<string>();
             var keywordArgs = new Dictionary<string, string>();
             var mutationBody = "";
+
             foreach (var arg in args)
             {
                 object argValue = null;
@@ -123,7 +125,17 @@ namespace graphqlodata.Middlewares
                     // args could be treated as filter/top/orderby
                     if (arg.Value.Kind == ASTNodeKind.ObjectValue)
                     {
-                        filterArgs.Add(VisitFilterObject(arg.Value));
+                        if (arg.Name.Value == "filter")
+                        {
+                            filterArgs.Add(VisitFilterObject(arg.Value));
+                        }
+                    }
+                    else if (arg.Value.Kind == ASTNodeKind.ListValue)
+                    {
+                        if (arg.Name.Value == "orderBy")
+                        {
+                            orderByArgs.Add(VisitOrderByObject(arg.Value));
+                        }
                     }
                     else
                     {
@@ -156,20 +168,25 @@ namespace graphqlodata.Middlewares
                 }
                 else if (requestType == GQLRequestType.Mutation)
                 {
-                    // args could be treated as func args
-                    //TODO: handle variable values
                     if (arg.Value is GraphQLObjectValue obj)
                     {
-                        mutationBody = VisitInputObject(obj);
+                        mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
                     }
                     else if (arg.Value.Kind == ASTNodeKind.Variable)
                     {
-                        mutationBody = argValue.ToString();
+                        if (arg.Name.Value == "input")
+                        {
+                            mutationBody = argValue.ToString();
+                        }
+                        else
+                        {
+                            kvPairs[arg.Name.Value] = argValue.ToString().Trim('"');
+                        }
                     }
                     else
                     {
                         // todo: probably dont want this. just use single input object instead
-                        kvPairs[arg.Name.Value] = arg.Value.ToString();
+                        kvPairs[arg.Name.Value] = arg.Value.ToString().Trim('"');
                     }
                 }
             }
@@ -179,7 +196,8 @@ namespace graphqlodata.Middlewares
             {
                 var keywordString = new QueryBuilder(keywordArgs).ToString().Trim('?');
                 var filterString = filterArgs.Count > 0 ? "$filter=" + string.Join(" and ", filterArgs) : "";
-                return string.Join("&", new string[] { filterString, keywordString }.Where(s => !string.IsNullOrEmpty(s)));
+                var orderByString = orderByArgs.Count > 0 ? "$orderBy=" + string.Join(",", orderByArgs) : "";
+                return string.Join("&", new string[] { filterString, keywordString, orderByString }.Where(s => !string.IsNullOrEmpty(s)));
             }
             else if (requestType == GQLRequestType.Function)
             {
@@ -196,6 +214,26 @@ namespace graphqlodata.Middlewares
             return "";
         }
 
+        private string VisitOrderByObject(GraphQLValue value)
+        {
+            var orderValues = value as GraphQLListValue;
+            var items = new List<string>(orderValues.Values.Count);
+            foreach (var item in orderValues.Values)
+            {
+                var field = item.ToString().Trim('"');
+                if (field.EndsWith("_desc"))
+                {
+                    items.Add($"{field.Substring(0, field.LastIndexOf("_desc"))} desc");
+                }
+                else
+                {
+                    var sortField = field.LastIndexOf("_asc") == -1 ? field : field.Substring(0, field.LastIndexOf("_asc"));
+                    items.Add($"{sortField} asc");
+                }
+            }
+            return string.Join(",", items);
+        }
+
         private string VisitInputObject(GraphQLValue value, bool singleQuoteStrings = false)
         {
             if (value is GraphQLObjectValue obj)
@@ -204,7 +242,7 @@ namespace graphqlodata.Middlewares
                     "{",
                     string.Join(
                         ",",
-                        obj.Fields.Select(fld => $"\"{fld.Name.Value}\": {VisitInputObject(fld.Value)}")
+                        obj.Fields.Select(fld => $"\"{fld.Name.Value}\": {VisitInputObject(fld.Value, singleQuoteStrings)}")
                     ),
                     "}"
                 );
@@ -213,13 +251,17 @@ namespace graphqlodata.Middlewares
             {
                 return string.Join(
                     ",",
-                    listValue.Values.Select(val => VisitInputObject(val))
+                    listValue.Values.Select(val => VisitInputObject(val, singleQuoteStrings))
                 );
             }
             else if (value is GraphQLVariable gqlVariable)
             {
                 var varValue = _variables[gqlVariable.Name.Value];
                 return singleQuoteStrings && varValue is string ? $"'{varValue}'" : $"{varValue}";
+            }
+            else if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
+            {
+                return $"'{value.ToString().Trim('"')}'";
             }
             else
             {
