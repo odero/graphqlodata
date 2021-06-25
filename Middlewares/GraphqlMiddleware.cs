@@ -60,6 +60,7 @@ namespace graphqlodata.Middlewares
 
             await _next(context);
             //response pipeline
+            
             await responseHandler.UpdateResponseBody(context.Response, originalBody, requestNames);
         }
     }

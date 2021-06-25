@@ -8,5 +8,7 @@ namespace graphqlodata.Repositories
     {
         IQueryable<Book> GetBooks();
         Book GetBook(int id);
+
+        Book AddBook(Book book);
     }
 }

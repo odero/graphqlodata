@@ -8,13 +8,26 @@ namespace graphqlodata.Repositories
 {
     public class BooksRepository : IBooksRepository
     {
-        public IQueryable<Book> GetBooks()
+        private readonly IList<Book> _books;
+        public BooksRepository()
         {
-            return new List<Book>
+            _books = new List<Book>
             {
                 new Book { Id = 1, Author = "Adam Smith", ISBN = "123", Price = 10.0M, Title = "The Capitalist Economy"},
                 new Book { Id = 2, Author = "Sam Smith", ISBN = "No one but you", Price = 2.50M, Title = "Random Tunes"},
-            }.AsQueryable();
+            };
+        }
+
+        public Book AddBook(Book book)
+        {
+            book.Id = _books.Last().Id + 1;
+            _books.Add(book);
+            return book;
+        }
+
+        public IQueryable<Book> GetBooks()
+        {
+            return _books.AsQueryable();
         }
 
         public Book GetBook(int id)

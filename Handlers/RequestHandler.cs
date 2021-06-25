@@ -52,7 +52,7 @@ namespace graphqlodata.Handlers
         {
             byte[] reqBytes = Encoding.UTF8.GetBytes(payload);
             req.Headers["accept"] = "application/json;odata.metadata=none;";
-            req.Method = "POST";
+            //req.Method = "POST"; ??
             req.Body = new MemoryStream();
             await req.Body.WriteAsync(reqBytes, 0, reqBytes.Length);
             req.Body.Position = 0;

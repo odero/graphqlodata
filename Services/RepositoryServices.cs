@@ -10,8 +10,8 @@ namespace Microsoft.Extensions.DependencyInjection
     {
         public static IServiceCollection AddRepositories(this IServiceCollection services)
         {
-            services.AddScoped<IBooksRepository, BooksRepository>();
-            services.AddScoped<ICustomerRepository, CustomerRepository>();
+            services.AddSingleton<IBooksRepository, BooksRepository>();
+            services.AddSingleton<ICustomerRepository, CustomerRepository>();
             return services;
         }
     }

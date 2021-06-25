@@ -21,22 +21,40 @@ namespace graphqlodata.Controllers
 
         public IQueryable<Book> Get()
         {
-            
             return _booksRepository.GetBooks();
         }
 
-        public Book Post(Book book)
+        public Book Get(int key)
         {
-            return new Book { Id = 14, Author = "Marcus Garvey", Title = "Sexual Healing" };
+            return _booksRepository.GetBook(key);
         }
+
+        [EnableQuery]
+        public IActionResult Post([FromBody]Book book)
+        {
+            if (book == null) return BadRequest();
+            var newBook =_booksRepository.AddBook(
+                new Book { Author = book.Author, Title = book.Title, Price = book.Price, ISBN = book.ISBN }
+            );
+            return Created(newBook);
+        }
+
+        public IActionResult Patch([FromODataUri] int key, [FromBody]Delta<Book> book)
+        {
+            if (book == null) return BadRequest();
+            var original = _booksRepository.GetBook(key);
+            book.Patch(original);
+            return Updated(original);
+        }
+
 
         //todo: middleware to convert mutation params to body params and use post
         [HttpPost]
         [ODataRoute("AddBook")]
-        public Book AddBook(ODataActionParameters parameters)
+        public IActionResult AddBook(ODataActionParameters parameters)
         {
             var book = new Book { Id = 14, Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
-            return book;
+            return Ok(book);
         }
         [ODataRoute("GetSomeBook(title={mytitle})")]
         public IActionResult GetSomeBook([FromODataUri] string mytitle)

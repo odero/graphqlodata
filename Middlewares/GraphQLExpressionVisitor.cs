@@ -13,8 +13,8 @@ namespace graphqlodata.Middlewares
     {
         public IList<string> SelectFields { get; set; }
         public IList<string> ExpandFields { get; set; }
-
         public string QueryArgs { get; set; }
+        public string KeySegment { get; set; }
     }
 
     public class GraphQLExpressionVisitor
@@ -93,11 +93,11 @@ namespace graphqlodata.Middlewares
             return $"?$select={selectString}{expandString}{filterString}";
         }
 
-        private string VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
+        private (string segments, string args) VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
         {
             if (args == null)
             {
-                return "";
+                return (null, "");
             }
 
             var argList = new List<string>();
@@ -106,7 +106,8 @@ namespace graphqlodata.Middlewares
             var filterArgs = new List<string>();
             var orderByArgs = new List<string>();
             var keywordArgs = new Dictionary<string, string>();
-            var mutationBody = "";
+            var mutationBody = default(string);
+            var keySegment = default(string);
 
             foreach (var arg in args)
             {
@@ -170,7 +171,15 @@ namespace graphqlodata.Middlewares
                 {
                     if (arg.Value is GraphQLObjectValue obj)
                     {
-                        mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
+                        if (arg.Name.Value == "key")
+                        {
+                            // TODO: extract key value
+                            keySegment = VisitKeySegment(obj);
+                        }
+                        else
+                        {
+                            mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
+                        }
                     }
                     else if (arg.Value.Kind == ASTNodeKind.Variable)
                     {
@@ -197,21 +206,45 @@ namespace graphqlodata.Middlewares
                 var keywordString = new QueryBuilder(keywordArgs).ToString().Trim('?');
                 var filterString = filterArgs.Count > 0 ? "$filter=" + string.Join(" and ", filterArgs) : "";
                 var orderByString = orderByArgs.Count > 0 ? "$orderBy=" + string.Join(",", orderByArgs) : "";
-                return string.Join("&", new string[] { filterString, keywordString, orderByString }.Where(s => !string.IsNullOrEmpty(s)));
+                return (null, string.Join("&", new string[] { filterString, keywordString, orderByString }.Where(s => !string.IsNullOrEmpty(s))));
             }
             else if (requestType == GQLRequestType.Function)
             {
-                return filterArgs.Count > 0 ? string.Join(",", filterArgs) : "";
+                return (null, filterArgs.Count > 0 ? string.Join(",", filterArgs) : "");
             }
             else if (requestType == GQLRequestType.Mutation)
             {
                 if (kvPairs.Keys.Count > 0)
                 {
-                    return JsonConvert.SerializeObject(kvPairs);
+                    return (null, JsonConvert.SerializeObject(kvPairs));
                 }
-                return mutationBody;
+                return (keySegment, mutationBody);
             }
-            return "";
+            return (null, "");
+        }
+
+        private string VisitKeySegment(GraphQLValue value, bool singleQuoteStrings = false)
+        {
+            if (value is GraphQLObjectValue obj)
+            {
+                return string.Join(
+                    ",",
+                    obj.Fields.Select(fld => VisitKeySegment(fld.Value, singleQuoteStrings))
+                );
+            }
+            else if (value is GraphQLVariable gqlVariable)
+            {
+                var varValue = _variables[gqlVariable.Name.Value];
+                return singleQuoteStrings && varValue is string ? $"'{varValue}'" : $"{varValue}";
+            }
+            else if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
+            {
+                return $"'{value.ToString().Trim('"')}'";
+            }
+            else
+            {
+                return value.ToString();
+            }
         }
 
         private string VisitOrderByObject(GraphQLValue value)
@@ -472,13 +505,14 @@ namespace graphqlodata.Middlewares
                 }
             }
 
-            var argString = VisitArgs(fieldSelection.Arguments, requestType);
+            var (keySegment, argString) = VisitArgs(fieldSelection.Arguments, requestType);
 
             return new BuildParts
             {
                 QueryArgs = argString,
                 ExpandFields = expandItems,
                 SelectFields = nodeFields,
+                KeySegment = keySegment,
             };
         }
 
@@ -522,11 +556,11 @@ namespace graphqlodata.Middlewares
                 var nodeName = mutationNode.Name.Value;
                 requestNames.Add(nodeName);
 
-                var fullString = BuildSelectExpandURL(requestInput);
+                var fullString = BuildSelectExpandURL(requestInput, GQLRequestType.Mutation);
 
                 return new RequestNodeInput
                 {
-                    Name = mutationNode.Name.Value,
+                    Name = requestInput.KeySegment is null ? nodeName : $"{nodeName}({requestInput.KeySegment})",
                     QueryString = fullString,
                     Body = requestInput.QueryArgs,
                     RequestType = GQLRequestType.Mutation,

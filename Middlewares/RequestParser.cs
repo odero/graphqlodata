@@ -51,7 +51,14 @@ namespace graphqlodata.Middlewares
                 else if (parsedQuery.RequestType == GQLRequestType.Mutation || parsedQuery.RequestType == GQLRequestType.Action)
                 {
                     // TODO: Mutation might also be treated as patch, put or delete
-                    req.Method = "POST";
+                    if (parsedQuery.Name.Contains("("))
+                    {
+                        req.Method = "PATCH";
+                    }
+                    else
+                    {
+                        req.Method = "POST";
+                    }
 
                     if (!string.IsNullOrEmpty(parsedQuery.Body))
                     {
