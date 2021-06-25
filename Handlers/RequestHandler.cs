@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using graphqlodata.Middlewares;
+using Microsoft.AspNetCore.Http;
 using Microsoft.OData.Edm;
 using System;
 using System.Collections.Generic;
@@ -7,18 +8,15 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace graphqlodata.Middlewares
+namespace graphqlodata.Handlers
 {
-    public class RequestHandler
+    public class RequestHandler : IGraphQLODataRequestHandler
     {
-        private readonly HttpRequest _req;
+        private HttpRequest _req;
 
-        public RequestHandler(HttpRequest req)
-        {
-            _req = req;
-        }
+        public HttpRequest Request { get => _req; set => _req = value; }
 
-        internal async Task<bool> TryParseRequest(IList<string> requestNames, IEdmModel model)
+        public async Task<bool> TryParseRequest(IList<string> requestNames, IEdmModel model)
         {
             var queryString = await ReadRequest();
             if (string.IsNullOrWhiteSpace(queryString))
@@ -50,7 +48,7 @@ namespace graphqlodata.Middlewares
             return body;
         }
 
-        internal async Task RewriteRequestBody(HttpRequest req, string payload)
+        public async Task RewriteRequestBody(HttpRequest req, string payload)
         {
             byte[] reqBytes = Encoding.UTF8.GetBytes(payload);
             req.Headers["accept"] = "application/json;odata.metadata=none;";

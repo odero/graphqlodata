@@ -10,6 +10,7 @@ using System.Xml;
 
 namespace graphqlodata.Middlewares
 {
+    [Obsolete("Functionality moved to ODataGraphQLSchemaConverter")]
     public class Helper
     {
         private static string _path = "https://localhost:5001/odata/$metadata";

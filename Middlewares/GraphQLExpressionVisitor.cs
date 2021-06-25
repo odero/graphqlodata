@@ -450,7 +450,7 @@ namespace graphqlodata.Middlewares
                         else
                         {
                             // must be a complex type/single prop which is accessed by path
-                            var propType = structuredType.StructuralProperties()?.FirstOrDefault(p => p.Name == field.Name.Value).Type;
+                            var propType = structuredType.StructuralProperties()?.FirstOrDefault(p => p?.Name == field.Name.Value)?.Type;
 
                             if (propType?.IsComplex() == true || propType?.IsCollection() == true)
                             {

@@ -7,11 +7,11 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace graphqlodata.Middlewares
+namespace graphqlodata.Handlers
 {
-    public class ResponseHandler
+    public class ResponseHandler : IGraphQLODataResponseHandler
     {
-        internal async Task UpdateResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
+        public async Task UpdateResponseBody(HttpResponse res, Stream existingBody, IList<string> requestNames)
         {
             string newContent;
             res.Body.Position = 0;

@@ -34,8 +34,8 @@ namespace graphqlodata
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddOData();
-            services.AddScoped<IBooksRepository, BooksRepository>();
-            services.AddScoped<ICustomerRepository, CustomerRepository>();
+            services.AddGraphQLOData();
+            services.AddRepositories();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -48,7 +48,7 @@ namespace graphqlodata
 
             app.UseHttpsRedirection();
 
-            app.UseGraphqlOData();
+            app.UseGraphQLOData();
             app.UseODataBatching();
             app.UseRouting();
 

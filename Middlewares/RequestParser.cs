@@ -1,4 +1,5 @@
-﻿using GraphQLParser;
+﻿using graphqlodata.Handlers;
+using GraphQLParser;
 using GraphQLParser.AST;
 using Microsoft.AspNetCore.Http;
 using Microsoft.OData.Edm;
@@ -12,13 +13,13 @@ namespace graphqlodata.Middlewares
 {
     public class RequestParser
     {
-        private readonly RequestHandler _requestHandler;
+        private readonly IGraphQLODataRequestHandler _requestHandler;
         private readonly IDictionary<string, GraphQLFragmentDefinition> _fragments;
         private readonly GraphQLExpressionVisitor _visitor;
 
         internal GraphQLQuery Query { get; }
 
-        internal RequestParser(RequestHandler requestHandler, IEdmModel model, string graphQLQuery)
+        internal RequestParser(IGraphQLODataRequestHandler requestHandler, IEdmModel model, string graphQLQuery)
         {
             _requestHandler = requestHandler;
             _fragments = new Dictionary<string, GraphQLFragmentDefinition>();

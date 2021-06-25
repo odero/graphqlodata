@@ -16,3 +16,4 @@ A middleware translates graphql to odata
 - [x] order by
 - [ ] casting derived types
 - [ ] aggregations (count, sum)
+- [x] filter on nav props

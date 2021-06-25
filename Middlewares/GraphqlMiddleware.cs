@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using graphqlodata.Handlers;
+using Microsoft.AspNetCore.Http;
 using Microsoft.OData.Edm;
 using System;
 using System.Collections.Generic;
@@ -19,29 +20,34 @@ namespace graphqlodata.Middlewares
     public class GraphqlODataMiddleware
     {
         private readonly RequestDelegate _next;
-        private readonly Lazy<IEdmModel> _model;
 
         public GraphqlODataMiddleware(RequestDelegate next)
         {
             _next = next;
-            _model = new Lazy<IEdmModel>(Helper.ReadModel);
         }
 
-        public async Task InvokeAsync(HttpContext context)
+        public async Task InvokeAsync(
+            HttpContext context,
+            IGraphQLODataRequestHandler requestHandler,
+            IGraphQLODataResponseHandler responseHandler,
+            IODataGraphQLSchemaConverter converter
+            )
         {
             var req = context.Request;
-
+            
             if (!req.Path.StartsWithSegments("/odata/$graphql"))
             {
                 await _next(context);
                 return;
             }
-            var requestHandler = new RequestHandler(req);
-            var responseHandler = new ResponseHandler();
+
+            requestHandler.Request = context.Request;
             var requestNames = new List<string>();
 
-            Helper.ODataSchemaPath = $"{req.Scheme}://{req.Host.Value}{req.Path.Value.Substring(0, req.Path.Value.IndexOf("/$graphql"))}/$metadata";
-            var parsed = await requestHandler.TryParseRequest(requestNames, _model.Value);
+            converter.ODataSchemaPath = $"{req.Scheme}://{req.Host.Value}{req.Path.Value.Substring(0, req.Path.Value.IndexOf("/$graphql"))}/$metadata";
+
+            var _model = await converter.FetchSchema();
+            var parsed = await requestHandler.TryParseRequest(requestNames, _model);
 
             if (!parsed)
             {
