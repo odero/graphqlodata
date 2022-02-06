@@ -1,19 +1,20 @@
 ﻿
 using graphqlodata.Handlers;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace Microsoft.Extensions.DependencyInjection
 {
     public static class GraphQLODataService
     {
-        public static IServiceCollection AddGraphQLOData(this IServiceCollection services)
+        public static IServiceCollection AddGraphQLOData(this IServiceCollection services, string metadataPath = null)
         {
+            services.AddHttpContextAccessor();
             services.AddScoped<IGraphQLODataRequestHandler, RequestHandler>();
             services.AddScoped<IGraphQLODataResponseHandler, ResponseHandler>();
-            services.AddSingleton<IODataGraphQLSchemaConverter, ODataGraphQLSchemaConverter>();
+            services.AddSingleton<IODataGraphQLSchemaConverter, ODataGraphQLSchemaConverter>(provider =>
+                new ODataGraphQLSchemaConverter(metadataPath, provider.GetRequiredService<IHttpContextAccessor>())
+            );
+
             return services;
         }
     }

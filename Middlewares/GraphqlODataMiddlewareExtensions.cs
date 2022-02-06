@@ -4,9 +4,12 @@ namespace graphqlodata.Middlewares
 {
     public static class GraphqlODataMiddlewareExtensions
     {
-        public static IApplicationBuilder UseGraphQLOData(this IApplicationBuilder builder)
+        public static IApplicationBuilder UseGraphQLOData(this IApplicationBuilder builder, string odataRoutePrefix = "odata")
         {
-            return builder.UseMiddleware<GraphqlODataMiddleware>();
+            return builder.UseWhen(
+                context => context.Request.Path == $"/{odataRoutePrefix}/$graphql",
+                app => app.UseMiddleware<GraphqlODataMiddleware>()
+            );
         }
     }
 }

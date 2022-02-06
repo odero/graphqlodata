@@ -1,23 +1,15 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using graphqlodata.Middlewares;
 using graphqlodata.Models;
-using graphqlodata.Repositories;
 using Microsoft.AspNet.OData.Batch;
 using Microsoft.AspNet.OData.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
-//using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
+using System.Linq;
 
 namespace graphqlodata
 {
@@ -34,7 +26,7 @@ namespace graphqlodata
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddOData();
-            services.AddGraphQLOData();
+            services.AddGraphQLOData();  //TODO: https://services.odata.org/V4/(S(v0jrha4xovrjwocj5redsnrt))/TripPinServiceRW/$metadata
             services.AddRepositories();
         }
 
@@ -51,9 +43,6 @@ namespace graphqlodata
             app.UseGraphQLOData();
             app.UseODataBatching();
             app.UseRouting();
-
-            //app.UseAuthorization();
-
             app.UseEndpoints(endpoints =>
             {
                 endpoints.Filter().Expand().Select().MaxTop(50).OrderBy();

@@ -1,7 +1,5 @@
 ﻿using graphqlodata.Handlers;
 using Microsoft.AspNetCore.Http;
-using Microsoft.OData.Edm;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -21,10 +19,7 @@ namespace graphqlodata.Middlewares
     {
         private readonly RequestDelegate _next;
 
-        public GraphqlODataMiddleware(RequestDelegate next)
-        {
-            _next = next;
-        }
+        public GraphqlODataMiddleware(RequestDelegate next) => _next = next;
 
         public async Task InvokeAsync(
             HttpContext context,
@@ -33,18 +28,7 @@ namespace graphqlodata.Middlewares
             IODataGraphQLSchemaConverter converter
             )
         {
-            var req = context.Request;
-            
-            if (!req.Path.StartsWithSegments("/odata/$graphql"))
-            {
-                await _next(context);
-                return;
-            }
-
-            requestHandler.Request = context.Request;
             var requestNames = new List<string>();
-
-            converter.ODataSchemaPath = $"{req.Scheme}://{req.Host.Value}{req.Path.Value.Substring(0, req.Path.Value.IndexOf("/$graphql"))}/$metadata";
 
             var _model = await converter.FetchSchema();
             var parsed = await requestHandler.TryParseRequest(requestNames, _model);
@@ -60,7 +44,7 @@ namespace graphqlodata.Middlewares
 
             await _next(context);
             //response pipeline
-            
+            //TODO: should i pass request.method here for context?? patch returns no content by default
             await responseHandler.UpdateResponseBody(context.Response, originalBody, requestNames);
         }
     }

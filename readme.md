@@ -7,7 +7,8 @@ A middleware translates graphql to odata
 - [x] handling functions and actions
 - [x] handling variables
 - [x] translate to $expand, query fields that have selection sets
-- [ ] translate updates and deletes to patch and delete (not post)
+- [x] translate updates to patch http method (not post)
+- [ ] translate deletes to delete http method (not post)
 - [x] translating fragments
 - [x] generate custom filtering options per field e.g. for playground and hasura
 - [x] response pipeline to reformat odata response to graphql response
@@ -17,3 +18,4 @@ A middleware translates graphql to odata
 - [ ] casting derived types
 - [ ] aggregations (count, sum)
 - [x] filter on nav props
+- [ ] using bulk operations for insert/update/delete
