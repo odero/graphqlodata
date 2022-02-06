@@ -43,6 +43,7 @@ namespace graphqlodata.Controllers
         {
             if (book == null) return BadRequest();
             var original = _booksRepository.GetBook(key);
+            if (original is null) return NotFound();
             book.Patch(original);
             return Updated(original);
         }
