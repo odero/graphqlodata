@@ -1,9 +1,7 @@
-﻿using graphqlodata.Middlewares;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.OData.Edm;
 using Microsoft.OData.Edm.Csdl;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using System.Xml;
 
@@ -11,29 +9,32 @@ namespace graphqlodata.Handlers
 {
     public class ODataGraphQLSchemaConverter : IODataGraphQLSchemaConverter
     {
-        private string _path = "https://localhost:5001/odata/$metadata";
         private readonly Lazy<Task<IEdmModel>> _model;
+        public readonly string _odataSchemaUri;
 
-        public string ODataSchemaPath { get => _path; set => _path = value; }
-
-        public ODataGraphQLSchemaConverter()
+        public ODataGraphQLSchemaConverter(string odataSchemaUri, IHttpContextAccessor httpContextAccessor)
         {
             _model = new Lazy<Task<IEdmModel>>(ReadModelAsync);
+
+            if (string.IsNullOrEmpty(odataSchemaUri))
+            {
+                var req = httpContextAccessor.HttpContext.Request;
+                var odataPathPrefix = req.Path.Value.Substring(1, req.Path.Value.IndexOf("/$graphql"));
+                _odataSchemaUri = $"{req.Scheme}://{req.Host.Value}/{odataPathPrefix}$metadata";
+            }
+            else
+            {
+                _odataSchemaUri = odataSchemaUri;
+            }
         }
 
-        public Task<IEdmModel> FetchSchema()
-        {
-            return _model.Value;
-        }
+        public Task<IEdmModel> FetchSchema() => _model.Value;
 
-        Task<IEdmModel> ReadModelAsync()
-        {
-            return Task.Run(ReadModel);
-        }
+        Task<IEdmModel> ReadModelAsync() => Task.Run(ReadModel);
 
         IEdmModel ReadModel()
         {
-            using var reader = XmlReader.Create(_path);
+            using var reader = XmlReader.Create(_odataSchemaUri);
             CsdlReader.TryParse(reader, out var model, out var errors);
             return model;
         }
