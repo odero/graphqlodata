@@ -1,7 +1,7 @@
 using graphqlodata.Middlewares;
 using graphqlodata.Models;
-using Microsoft.AspNet.OData.Batch;
-using Microsoft.AspNet.OData.Extensions;
+using Microsoft.AspNetCore.OData.Batch;
+using Microsoft.AspNetCore.OData.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.OData.Edm;
 using Microsoft.OData.ModelBuilder;
 using System.Linq;
+using Microsoft.AspNetCore.OData;
 
 namespace graphqlodata
 {
@@ -25,7 +26,12 @@ namespace graphqlodata
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddOData();
+            services.AddRouting();
+            services.AddControllers().AddOData(
+                options => options
+                    .AddRouteComponents("odata", GetEdmModel(), new DefaultODataBatchHandler())
+                    .Filter().Expand().Select().SetMaxTop(50).OrderBy());
+            
             services.AddGraphQLOData();  //TODO: https://services.odata.org/V4/(S(v0jrha4xovrjwocj5redsnrt))/TripPinServiceRW/$metadata
             services.AddRepositories();
         }
@@ -45,8 +51,9 @@ namespace graphqlodata
             app.UseRouting();
             app.UseEndpoints(endpoints =>
             {
-                endpoints.Filter().Expand().Select().MaxTop(50).OrderBy();
-                endpoints.MapODataRoute("odata", "odata", GetEdmModel(), new DefaultODataBatchHandler());
+                endpoints.MapControllers();
+                // // endpoints.Filter().Expand().Select().MaxTop(50).OrderBy();
+                // endpoints.MapODataRoute("odata", "odata", GetEdmModel(), new DefaultODataBatchHandler());
             });
         }
 

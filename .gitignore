@@ -361,5 +361,6 @@ MigrationBackup/
 /node_modules
 /wwwroot/node_modules
 
+.idea/
 
 # End of https://www.gitignore.io/api/csharp,dotnetcore

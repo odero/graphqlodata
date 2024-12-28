@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace graphqlodata.Middlewares
@@ -47,21 +48,21 @@ namespace graphqlodata.Middlewares
             else
             {
                 isBatch = false;
-                var qryNode = gqlQuery.SelectionSet.Selections.Single() as GraphQLFieldSelection;
-                var nodeName = qryNode.Name.Value;
+                var qryNode = (GraphQLField)gqlQuery.SelectionSet.Selections.Single();
+                var nodeName = qryNode.Name.StringValue;
                 requestNames.Add(nodeName);
 
                 return BuildQueryOrFunction(qryNode);
             }
         }
 
-        private RequestNodeInput BuildQueryOrFunction(GraphQLFieldSelection queryNode)
+        private RequestNodeInput BuildQueryOrFunction(GraphQLField queryNode)
         {
-            string nodeName = queryNode.Name.Value;
+            string nodeName = queryNode.Name.StringValue;
             if (QueryIsFunctionType(_model, nodeName))
             {
                 var selectedFields = VisitRequestNode(queryNode, null, GQLRequestType.Function);
-                var fullString = BuildSelectExpandURL(selectedFields, GQLRequestType.Function);
+                var fullString = BuildSelectExpandUrl(selectedFields, GQLRequestType.Function);
 
                 return new RequestNodeInput
                 {
@@ -74,18 +75,18 @@ namespace graphqlodata.Middlewares
             else
             {
                 var selectedFields = VisitRequestNode(queryNode, _model.EntityContainer.FindEntitySet(nodeName).EntityType());
-                var fullString = BuildSelectExpandURL(selectedFields);
+                var fullString = BuildSelectExpandUrl(selectedFields);
 
                 return new RequestNodeInput
                 {
-                    Name = queryNode.Name.Value,
+                    Name = queryNode.Name.StringValue,
                     QueryString = fullString,
                     RequestType = GQLRequestType.Query,
                 };
             }
         }
 
-        private string BuildSelectExpandURL(BuildParts parts, GQLRequestType requestType = GQLRequestType.Query)
+        private static string BuildSelectExpandUrl(BuildParts parts, GQLRequestType requestType = GQLRequestType.Query)
         {
             var selectString = BuildSelectFromParts(parts.SelectFields);
             var expandString = parts.ExpandFields.Any() ? "&$expand=" + BuildExpandFromParts(parts.ExpandFields) : "";
@@ -93,7 +94,7 @@ namespace graphqlodata.Middlewares
             return $"?$select={selectString}{expandString}{filterString}";
         }
 
-        private (string segments, string args) VisitArgs(List<GraphQLArgument> args, GQLRequestType requestType)
+        private (string segments, string args) VisitArgs(GraphQLArguments args, GQLRequestType requestType)
         {
             if (args == null)
             {
@@ -114,7 +115,7 @@ namespace graphqlodata.Middlewares
                 object argValue = null;
                 if (arg.Value is GraphQLVariable gqlVariable)
                 {
-                    argValue = _variables[gqlVariable.Name.Value].ToString();
+                    argValue = _variables[gqlVariable.Name.StringValue].ToString();
                 }
                 else
                 {
@@ -123,33 +124,42 @@ namespace graphqlodata.Middlewares
 
                 if (requestType == GQLRequestType.Query)
                 {
-                    // args could be treated as filter/top/orderby
-                    if (arg.Value.Kind == ASTNodeKind.ObjectValue)
+                    switch (arg.Value.Kind)
                     {
-                        if (arg.Name.Value == "filter")
+                        // args could be treated as filter/top/orderby
+                        case ASTNodeKind.ObjectValue:
                         {
-                            filterArgs.Add(VisitFilterObject(arg.Value));
+                            if (arg.Name.Value == "filter" || arg.Name.Value == "where")
+                            {
+                                filterArgs.Add(VisitFilterObject(arg.Value));
+                            }
+
+                            break;
                         }
-                    }
-                    else if (arg.Value.Kind == ASTNodeKind.ListValue)
-                    {
-                        if (arg.Name.Value == "orderBy")
+                        case ASTNodeKind.ListValue:
                         {
-                            orderByArgs.Add(VisitOrderByObject(arg.Value));
+                            if (arg.Name.Value == "orderBy")
+                            {
+                                orderByArgs.Add(VisitOrderByObject(arg.Value));
+                            }
+
+                            break;
                         }
-                    }
-                    else
-                    {
-                        var argName = arg.Name.Value.ToLowerInvariant();
-                        if (QueryOptionMapper.Options.Keys.Contains(argName))
+                        default:
                         {
-                            var remapped = QueryOptionMapper.Remap(argName, argValue.ToString());
-                            remapped.ToList().ForEach(kv => keywordArgs[kv.Key] = kv.Value);
-                        }
-                        else
-                        {
-                            //VisitFilterObject
-                            filterArgs.Add($"{arg.Name.Value} eq {VisitFilterObject(arg.Value)}");
+                            var argName = arg.Name.StringValue.ToLowerInvariant();
+                            if (QueryOptionMapper.Options.ContainsKey(argName))
+                            {
+                                var remapped = QueryOptionMapper.Remap(argName, argValue.ToString());
+                                remapped.ToList().ForEach(kv => keywordArgs[kv.Key] = kv.Value);
+                            }
+                            else
+                            {
+                                //VisitFilterObject
+                                filterArgs.Add($"{arg.Name.Value} eq {VisitFilterObject(arg.Value)}");
+                            }
+
+                            break;
                         }
                     }
                 }
@@ -189,13 +199,13 @@ namespace graphqlodata.Middlewares
                         }
                         else
                         {
-                            kvPairs[arg.Name.Value] = argValue.ToString().Trim('"');
+                            kvPairs[arg.Name.StringValue] = argValue.ToString().Trim('"');
                         }
                     }
                     else
                     {
                         // todo: probably dont want this. just use single input object instead
-                        kvPairs[arg.Name.Value] = arg.Value.ToString().Trim('"');
+                        kvPairs[arg.Name.StringValue] = arg.Value.ToString().Trim('"');
                     }
                 }
             }
@@ -234,7 +244,7 @@ namespace graphqlodata.Middlewares
             }
             else if (value is GraphQLVariable gqlVariable)
             {
-                var varValue = _variables[gqlVariable.Name.Value];
+                var varValue = _variables[gqlVariable.Name.StringValue];
                 return singleQuoteStrings && varValue is string ? $"'{varValue}'" : $"{varValue}";
             }
             else if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
@@ -289,7 +299,7 @@ namespace graphqlodata.Middlewares
             }
             else if (value is GraphQLVariable gqlVariable)
             {
-                var varValue = _variables[gqlVariable.Name.Value];
+                var varValue = _variables[gqlVariable.Name.StringValue];
                 return singleQuoteStrings && varValue is string ? $"'{varValue}'" : $"{varValue}";
             }
             else if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
@@ -309,7 +319,7 @@ namespace graphqlodata.Middlewares
 
             if (value is GraphQLVariable gqlVariable)
             {
-                argValue = _variables[gqlVariable.Name.Value];
+                argValue = _variables[gqlVariable.Name.StringValue];
             }
             else
             {
@@ -317,48 +327,52 @@ namespace graphqlodata.Middlewares
             }
 
             string query;
-            if (argValue is GraphQLObjectValue objValue)
+            switch (argValue)
             {
-                foreach (var field in objValue.Fields)
+                case GraphQLObjectValue objValue:
                 {
-                    switch (field.Name.Value)
+                    foreach (var field in objValue.Fields)
                     {
-                        case "OR":
-                        case "AND":
-                            queries.Add(VisitFilterObject(field.Value, field.Name.Value));
-                            break;
-                        default:
-                            queries.Add(VisitStringFilter(field));
-                            break;
+                        switch (field.Name.StringValue.ToUpper())
+                        {
+                            case "OR":
+                            case "AND":
+                                queries.Add(VisitFilterObject(field.Value, field.Name.StringValue));
+                                break;
+                            default:
+                                queries.Add(VisitStringFilter(field));
+                                break;
+                        }
                     }
+                    query = string.Join(" AND ", queries);
+                    break;
                 }
-                query = string.Join(" AND ", queries);
-            }
-            else if (argValue is GraphQLListValue listValue)
-            {
-                var parts = new List<string>();
-                foreach (var item in listValue.Values)
+                case GraphQLListValue listValue:
                 {
-                    parts.Add(VisitFilterObject(item));
+                    var parts = new List<string>();
+                    foreach (var item in listValue.Values)
+                    {
+                        parts.Add(VisitFilterObject(item));
+                    }
+                    query = string.Join($" {op} ", parts);
+                    break;
                 }
-                query = string.Join($" {op} ", parts);
-            }
-            else
-            {
-                query = argValue is string || (argValue as GraphQLValue)?.Kind == ASTNodeKind.StringValue ? $"'{argValue.ToString().Trim('"')}'" : argValue.ToString();
+                default:
+                    query = argValue is string || (argValue as GraphQLValue)?.Kind == ASTNodeKind.StringValue ? $"'{argValue.ToString().Trim('"')}'" : argValue.ToString();
+                    break;
             }
             return query;
         }
 
         private string VisitStringFilter(GraphQLObjectField field)
         {
-            var fieldName = field.Name.Value;
+            var fieldName = field.Name.StringValue;
             if (fieldName.EndsWith("_in"))
             {
                 object fieldValue;
                 if (field.Value is GraphQLVariable qLVariable)
                 {
-                    fieldValue = _variables[qLVariable.Name.Value];
+                    fieldValue = _variables[qLVariable.Name.StringValue];
                 }
                 else
                 {
@@ -387,19 +401,24 @@ namespace graphqlodata.Middlewares
 
             }
 
-            var value = field.Value.ToString().Trim('"');
+            var value = field.Value.Kind switch
+            {
+                ASTNodeKind.StringValue => ((GraphQLStringValue)field.Value).Value.ToString().Trim('"'),
+                ASTNodeKind.IntValue => ((GraphQLIntValue)field.Value).Value.ToString(),
+                _ => field.Value.ToString()
+            };
             
             if (fieldName.EndsWith("_contains"))
             {
-                return $"contains({fieldName.Substring(0, fieldName.LastIndexOf("_contains"))}, '{value}')";
+                return $"contains({fieldName[..fieldName.LastIndexOf("_contains", StringComparison.Ordinal)]}, '{value}')";
             }
             else if (fieldName.EndsWith("_startswith"))
             {
-                return $"startswith({fieldName.Substring(0, fieldName.LastIndexOf("_startswith"))}, '{value}')";
+                return $"startswith({fieldName[..fieldName.LastIndexOf("_startswith", StringComparison.Ordinal)]}, '{value}')";
             }
             else if (fieldName.EndsWith("_endswith"))
             {
-                return $"endswith({fieldName.Substring(0, fieldName.LastIndexOf("_endswith"))}, '{value}')";
+                return $"endswith({fieldName[..fieldName.LastIndexOf("_endswith", StringComparison.Ordinal)]}, '{value}')";
             }
             return VisitLogicalFilter(field);
         }
@@ -407,38 +426,45 @@ namespace graphqlodata.Middlewares
         private string VisitLogicalFilter(GraphQLObjectField field)
         {
             string value;
+            if (field.Value is null || field.Name is null) throw new ArgumentNullException(nameof(field));
+            
             if (field.Value is GraphQLVariable qLVariable)
             {
-                var varValue = _variables[qLVariable.Name.Value];
-                value = varValue is string ? $"'{varValue.ToString().Trim('"')}'" : varValue.ToString();
+                var varValue = _variables[qLVariable.Name.StringValue];
+                value = varValue is string ? $"'{varValue.ToString()?.Trim('"')}'" : varValue.ToString();
             }
             else
             {
-                value = field.Value.Kind == ASTNodeKind.StringValue ? $"'{field.Value.ToString().Trim('"')}'" : field.Value.ToString();
+                value = field.Value.Kind switch
+                {
+                    ASTNodeKind.StringValue => $"'{field.Value.ToString()?.Trim('"')}'",
+                    ASTNodeKind.IntValue => ((GraphQLIntValue)field.Value).Value.ToString(),
+                    _ => field.Value.ToString()
+                };
             }
             
-            var fieldName = field.Name.Value;
+            var fieldName = field.Name.StringValue;
 
             if (fieldName.EndsWith("_gt"))
             {
-                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_gt"))} gt {value}";
+                return $"{fieldName[..fieldName.LastIndexOf("_gt", StringComparison.Ordinal)]} gt {value}";
             }
             else if (fieldName.EndsWith("_gte"))
             {
-                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_gte"))} gte {value}";
+                return $"{fieldName[..fieldName.LastIndexOf("_gte", StringComparison.Ordinal)]} gte {value}";
             }
             else if (fieldName.EndsWith("_lt"))
             {
-                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_lt"))} lt {value}";
+                return $"{fieldName[..fieldName.LastIndexOf("_lt", StringComparison.Ordinal)]} lt {value}";
             }
             else if (fieldName.EndsWith("_lte"))
             {
-                return $"{fieldName.Substring(0, fieldName.LastIndexOf("_lte"))} lte {value}";
+                return $"{fieldName[..fieldName.LastIndexOf("_lte", StringComparison.Ordinal)]} lte {value}";
             }
             return $"{fieldName} eq {value}";
         }
 
-        private BuildParts VisitRequestNode(GraphQLFieldSelection fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType = GQLRequestType.Query)
+        private BuildParts VisitRequestNode(GraphQLField fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType = GQLRequestType.Query)
         {
             var nodeFields = new List<string>();
             var expandItems = new List<string>();
@@ -447,15 +473,15 @@ namespace graphqlodata.Middlewares
             {
                 if (node is GraphQLFragmentSpread fragField)
                 {
-                    var frag = _fragments[fragField.Name.Value];
+                    var frag = _fragments[fragField.FragmentName.Name.StringValue];
 
                     if (frag.SelectionSet?.Selections.Any() == true)
                     {
-                        var fields = frag.SelectionSet?.Selections.OfType<GraphQLFieldSelection>().Select(f => f.Name.Value);
+                        var fields = frag.SelectionSet?.Selections.OfType<GraphQLField>().Select(f => f.Name.StringValue);
                         nodeFields.AddRange(fields);
                     }
                 }
-                else if (node is GraphQLFieldSelection field)
+                else if (node is GraphQLField field)
                 {
                     BuildParts buildParts = null;
                     if (field.SelectionSet?.Selections.Any() == true)
@@ -496,7 +522,7 @@ namespace graphqlodata.Middlewares
                         }
 
                     }
-                    var visitedField = VisitNodeFields(node as GraphQLFieldSelection);
+                    var visitedField = VisitNodeFields(node as GraphQLField);
                     if (structuredType?.TypeKind == EdmTypeKind.Complex)
                     {
                         visitedField = $"{fieldSelection.Name.Value}/{visitedField}";
@@ -516,22 +542,22 @@ namespace graphqlodata.Middlewares
             };
         }
 
-        private string BuildSelectFromParts(IList<string> parts, string argString = null)
+        private static string BuildSelectFromParts(IList<string> parts, string argString = null)
         {
             var selectFieldString = string.Join(",", parts);
             var fullSelectString = string.Join(";", new[] { selectFieldString, argString }.Where(s => !string.IsNullOrEmpty(s)));
             return fullSelectString;
         }
 
-        private string BuildExpandFromParts(IList<string> parts)
+        private static string BuildExpandFromParts(IList<string> parts)
         {
             var expandString = string.Join(",", parts.Where(s => !string.IsNullOrEmpty(s)));
             return expandString;
         }
 
-        private string VisitNodeFields(GraphQLFieldSelection fieldSelection)
+        private static string VisitNodeFields(GraphQLField fieldSelection)
         {
-            return fieldSelection.Name.Value;
+            return fieldSelection.Name.StringValue;
         }
 
         internal RequestNodeInput VisitMutation(GraphQLOperationDefinition gqlMutation, out bool isBatch, IList<string> requestNames)
@@ -550,13 +576,13 @@ namespace graphqlodata.Middlewares
             else
             {
                 isBatch = false;
-                var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLFieldSelection;
+                var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLField;
                 //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
                 var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
-                var nodeName = mutationNode.Name.Value;
+                var nodeName = mutationNode.Name.StringValue;
                 requestNames.Add(nodeName);
 
-                var fullString = BuildSelectExpandURL(requestInput, GQLRequestType.Mutation);
+                var fullString = BuildSelectExpandUrl(requestInput, GQLRequestType.Mutation);
 
                 return new RequestNodeInput
                 {
@@ -569,19 +595,19 @@ namespace graphqlodata.Middlewares
             }
         }
 
-        private string VisitMutationNode(GraphQLFieldSelection fieldSelection, string actionName)
+        private string VisitMutationNode(GraphQLField fieldSelection, string actionName)
         {
             return default;
         }
 
 
-        private string BuildJsonBatchRequest(GraphQLSelectionSet selectionSet, IList<string> requestNames = null)
+        private string BuildJsonBatchRequest(GraphQLSelectionSet selectionSet, IList<string> requestNames)
         {
             BatchRequestObject batchRequest = new BatchRequestObject();
 
-            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLFieldSelection>().Select((value, index) => (index, value)))
+            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLField>().Select((value, index) => (index, value)))
             {
-                var nodeName = qryNode.value.Name.Value;
+                var nodeName = qryNode.value.Name.StringValue;
                 requestNames.Add(nodeName);
 
                 //todo: check if query/mutation to determine request method - not possible in graphql to combine query and mutation in same request

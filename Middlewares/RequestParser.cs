@@ -73,10 +73,10 @@ namespace graphqlodata.Middlewares
         private RequestNodeInput ParseGraphql(GraphQLQuery query, out bool hasMultipleRequests, IList<string> requestNames)
         {
             //todo: we want to avoid having field scoped variables in middleware
-            var lexer = new Lexer();
-            var parser = new Parser(lexer);
+            // var lexer = new Lexer();
+            // var parser = new Parser(lexer);
             
-            var ast = parser.Parse(new Source(query.Query));
+            var ast = Parser.Parse(query.Query);
 
             // TODO: Consider additional definitions like fragments and enums
             if (ast.Definitions.OfType<GraphQLOperationDefinition>().Count() > 1)
@@ -86,7 +86,7 @@ namespace graphqlodata.Middlewares
 
             foreach (var frag in ast.Definitions.OfType<GraphQLFragmentDefinition>())
             {
-                _fragments[frag.Name.Value] = frag;
+                _fragments[frag.FragmentName.Name.StringValue] = frag;
             }
 
             var parsedQuery = new RequestNodeInput();

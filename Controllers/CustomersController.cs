@@ -1,32 +1,24 @@
 ﻿using graphqlodata.Models;
 using graphqlodata.Repositories;
-using Microsoft.AspNet.OData;
 using Microsoft.AspNetCore.Mvc;
-using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.OData.Formatter;
+using Microsoft.AspNetCore.OData.Query;
+using Microsoft.AspNetCore.OData.Routing.Controllers;
 
 namespace graphqlodata.Controllers
 {
     [EnableQuery]
-    public class CustomersController : ODataController
+    public class CustomersController(ICustomerRepository customerRepository) : ODataController
     {
-        private readonly ICustomerRepository _customerRepository;
-
-        public CustomersController(ICustomerRepository customerRepository)
-        {
-            _customerRepository = customerRepository;
-        }
-
         public IQueryable<Customer> Get()
         {
-            return _customerRepository.GetCustomers();
+            return customerRepository.GetCustomers();
         }
 
         public IActionResult Get([FromODataUri]int key)
         {
-            return Ok(_customerRepository.GetCustomer(key));
+            return Ok(customerRepository.GetCustomer(key));
         }
     }
 }

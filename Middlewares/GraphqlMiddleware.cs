@@ -31,6 +31,8 @@ namespace graphqlodata.Middlewares
             var requestNames = new List<string>();
 
             var _model = await converter.FetchSchema();
+            ((RequestHandler)requestHandler).Request = context.Request;
+            
             var parsed = await requestHandler.TryParseRequest(requestNames, _model);
 
             if (!parsed)
