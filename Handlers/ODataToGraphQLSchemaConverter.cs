@@ -10,7 +10,7 @@ namespace graphqlodata.Handlers
     public class ODataGraphQLSchemaConverter : IODataGraphQLSchemaConverter
     {
         private readonly Lazy<Task<IEdmModel>> _model;
-        public readonly string _odataSchemaUri;
+        private readonly string _odataSchemaUri;
 
         public ODataGraphQLSchemaConverter(string odataSchemaUri, IHttpContextAccessor httpContextAccessor)
         {
@@ -18,8 +18,10 @@ namespace graphqlodata.Handlers
 
             if (string.IsNullOrEmpty(odataSchemaUri))
             {
-                var req = httpContextAccessor.HttpContext.Request;
-                var odataPathPrefix = req.Path.Value.Substring(1, req.Path.Value.IndexOf("/$graphql"));
+                var req = httpContextAccessor.HttpContext?.Request;
+                if (req?.Path.Value == null) return;
+                var odataPathPrefix =
+                    req.Path.Value.Substring(1, req.Path.Value.IndexOf("/$graphql", StringComparison.Ordinal));
                 _odataSchemaUri = $"{req.Scheme}://{req.Host.Value}/{odataPathPrefix}$metadata";
             }
             else
@@ -30,9 +32,9 @@ namespace graphqlodata.Handlers
 
         public Task<IEdmModel> FetchSchema() => _model.Value;
 
-        Task<IEdmModel> ReadModelAsync() => Task.Run(ReadModel);
+        private Task<IEdmModel> ReadModelAsync() => Task.Run(ReadModel);
 
-        IEdmModel ReadModel()
+        private IEdmModel ReadModel()
         {
             using var reader = XmlReader.Create(_odataSchemaUri);
             CsdlReader.TryParse(reader, out var model, out var errors);

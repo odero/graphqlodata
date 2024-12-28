@@ -1,10 +1,10 @@
 ﻿using graphqlodata.Middlewares;
 using Microsoft.AspNetCore.Http;
 using Microsoft.OData.Edm;
-using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -12,9 +12,7 @@ namespace graphqlodata.Handlers
 {
     public class RequestHandler : IGraphQLODataRequestHandler
     {
-        private HttpRequest _req;
-
-        public HttpRequest Request { get => _req; set => _req = value; }
+        public HttpRequest Request { get; set; }
 
         public async Task<bool> TryParseRequest(IList<string> requestNames, IEdmModel model)
         {
@@ -24,15 +22,15 @@ namespace graphqlodata.Handlers
                 return false;
             }
             var parser = new RequestParser(this, model, queryString);
-            await parser.ConvertGraphQLtoODataQuery(_req, parser.Query, requestNames);
+            await parser.ConvertGraphQLtoODataQuery(Request, parser.Query, requestNames);
             return true;
         }
 
         private async Task<string> ReadRequest()
         {
-            _req.EnableBuffering();
-            var graphQLQuery = _req.Query["query"].ToString();
-            if (_req.Method == "POST")
+            Request.EnableBuffering();
+            var graphQLQuery = Request.Query["query"].ToString();
+            if (Request.Method == "POST")
             {
                 graphQLQuery = await ReadRequestBody();
             }
@@ -42,19 +40,20 @@ namespace graphqlodata.Handlers
 
         private async Task<string> ReadRequestBody()
         {
-            using StreamReader reader = new StreamReader(_req.Body, Encoding.UTF8, true, 1024, true);
+            using var reader = new StreamReader(Request.Body, Encoding.UTF8, true, 1024, true);
             var body = await reader.ReadToEndAsync();
-            _req.Body.Position = 0;
+            Request.Body.Position = 0;
             return body;
         }
 
         public async Task RewriteRequestBody(HttpRequest req, string payload)
         {
-            byte[] reqBytes = Encoding.UTF8.GetBytes(payload);
-            req.Headers["accept"] = "application/json;odata.metadata=none;";
+            var reqBytes = Encoding.UTF8.GetBytes(payload);
+            req.Headers.Accept = "application/json;odata.metadata=none;";
             //req.Method = "POST"; ??
+            req.Headers.ContentType = "application/json;odata.metadata=none;";
             req.Body = new MemoryStream();
-            await req.Body.WriteAsync(reqBytes, 0, reqBytes.Length);
+            await req.Body.WriteAsync(reqBytes);
             req.Body.Position = 0;
         }
 

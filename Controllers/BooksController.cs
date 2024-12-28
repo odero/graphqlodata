@@ -1,4 +1,5 @@
-﻿using graphqlodata.Models;
+﻿using System;
+using graphqlodata.Models;
 using graphqlodata.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using System.Linq;
@@ -43,21 +44,23 @@ namespace graphqlodata.Controllers
 
 
         //todo: middleware to convert mutation params to body params and use post
-        [HttpPost]
-        [Route("AddBook")]
+        // [HttpPost]
+        [HttpPost("odata/AddBook")]
         public IActionResult AddBook(ODataActionParameters parameters)
         {
             var book = new Book { Id = 14, Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
             return Ok(book);
         }
-        [HttpGet("GetSomeBook(title={mytitle})")]
+
+        [HttpGet("odata/GetSomeBook(title={mytitle})")]
         public IActionResult GetSomeBook([FromODataUri] string mytitle)
         {
-            var res = booksRepository.GetBooks().FirstOrDefault(b => b.Title.Equals(mytitle));
+            var title = Uri.UnescapeDataString(mytitle);
+            var res = booksRepository.GetBooks().FirstOrDefault(b => b.Title.Equals(title));
             return res == null ? (IActionResult)NotFound() : Ok(res);
         }
         
-        [HttpGet("GetSomeComplexBook(title={myAddress})")]
+        [HttpGet("odata/GetSomeComplexBook(title={myAddress})")]
         public IActionResult GetSomeComplexBook([FromODataUri] Address myAddress)
         {
             var res = booksRepository.GetBooks().FirstOrDefault(b => b.Title.Equals(myAddress));

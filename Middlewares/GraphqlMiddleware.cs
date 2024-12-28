@@ -15,12 +15,8 @@ namespace graphqlodata.Middlewares
         Action,
     }
 
-    public class GraphqlODataMiddleware
+    public class GraphqlODataMiddleware(RequestDelegate next)
     {
-        private readonly RequestDelegate _next;
-
-        public GraphqlODataMiddleware(RequestDelegate next) => _next = next;
-
         public async Task InvokeAsync(
             HttpContext context,
             IGraphQLODataRequestHandler requestHandler,
@@ -30,21 +26,21 @@ namespace graphqlodata.Middlewares
         {
             var requestNames = new List<string>();
 
-            var _model = await converter.FetchSchema();
+            var model = await converter.FetchSchema();
             ((RequestHandler)requestHandler).Request = context.Request;
             
-            var parsed = await requestHandler.TryParseRequest(requestNames, _model);
+            var parsed = await requestHandler.TryParseRequest(requestNames, model);
 
             if (!parsed)
             {
-                await _next(context);
+                await next(context);
                 return;
             }
 
             var originalBody = context.Response.Body;
             context.Response.Body = new MemoryStream();  // set to MemoryStream so that it is seekable later on when reformatting the response
 
-            await _next(context);
+            await next(context);
             //response pipeline
             //TODO: should i pass request.method here for context?? patch returns no content by default
             await responseHandler.UpdateResponseBody(context.Response, originalBody, requestNames);

@@ -15,7 +15,7 @@ namespace graphqlodata.Handlers
         {
             string newContent;
             res.Body.Position = 0;
-            if (res.StatusCode < 200 || res.StatusCode > 207)
+            if (res.StatusCode is < 200 or > 207)
             {
                 //if status is not 2xx then we need to package the error
                 newContent = PackageError(res);
@@ -28,13 +28,13 @@ namespace graphqlodata.Handlers
             }
             else
             {
-                newContent = ReformatResponse(new StreamReader(res.Body).ReadToEnd(), requestNames);
+                newContent = ReformatResponse(await new StreamReader(res.Body).ReadToEndAsync(), requestNames);
             }
             res.Body = existingBody; // because this must be type HttpResponseStream that's internal to Kestrel
             await res.WriteAsync(newContent);
         }
 
-        private string PackageError(HttpResponse res)
+        private static string PackageError(HttpResponse res)
         {
             var errorBody = res.Body.Length > 0
                 ? JObject.Parse(new StreamReader(res.Body).ReadToEnd()).SelectToken("error")
@@ -49,18 +49,18 @@ namespace graphqlodata.Handlers
             return errorRes;
         }
 
-        private string ReformatResponse(string currentResponse, IList<string> gqlQueryNames)
+        private static string ReformatResponse(string currentResponse, IList<string> gqlQueryNames)
         {
             // if key is value; means single query returning entityset
             // if key is responses; means batch query
             // else single object query returning single object/entity
             var parsed = JObject.Parse(currentResponse);
             var obj = new JObject();
-            if (parsed.SelectToken("responses") is JToken token)
+            if (parsed.SelectToken("responses") is { } token)
             {
                 for (var i = 0; i < token.Count(); i++)
                 {
-                    var body = token[i]["body"];
+                    var body = token[i]?["body"];
                     obj.Add(gqlQueryNames[i], body?.SelectToken("value") ?? body);
                 }
             }
@@ -68,7 +68,7 @@ namespace graphqlodata.Handlers
             {
                 obj.Add(gqlQueryNames.First(), parsed.SelectToken("value") ?? parsed);
             }
-            JObject finalRes = JObject.FromObject(new { data = obj });
+            var finalRes = JObject.FromObject(new { data = obj });
             return finalRes.ToString();
         }
     }

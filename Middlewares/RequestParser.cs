@@ -30,9 +30,9 @@ namespace graphqlodata.Middlewares
         internal async Task ConvertGraphQLtoODataQuery(HttpRequest req, GraphQLQuery graphQLQuery, IList<string> requestNames)
         {
             //Convert graphql syntax
-            RequestNodeInput parsedQuery = ParseGraphql(graphQLQuery, out bool isBatch, requestNames);
+            var parsedQuery = ParseGraphql(graphQLQuery, out var isBatch, requestNames);
             //todo: build req path prefix
-            var pathPrefix = "odata";
+            const string pathPrefix = "odata";
 
             if (isBatch)
             {
@@ -43,39 +43,47 @@ namespace graphqlodata.Middlewares
             {
                 req.Path = $"/{pathPrefix}/{parsedQuery.Name}";
                 req.QueryString = new QueryString(parsedQuery.QueryString);
-
-                if (parsedQuery.RequestType == GQLRequestType.Query || parsedQuery.RequestType == GQLRequestType.Function)
+                req.Headers.ContentType = "application/json";
+                
+                switch (parsedQuery.RequestType)
                 {
-                    req.Method = "GET";
-                }
-                else if (parsedQuery.RequestType == GQLRequestType.Mutation || parsedQuery.RequestType == GQLRequestType.Action)
-                {
-                    // TODO: Mutation might also be treated as patch, put or delete
-                    if (parsedQuery.Name.Contains("("))
+                    case GQLRequestType.Query:
+                    case GQLRequestType.Function:
+                        req.Method = "GET";
+                        break;
+                    case GQLRequestType.Mutation:
+                    case GQLRequestType.Action:
                     {
-                        req.Method = "PATCH";
-                    }
-                    else
-                    {
-                        req.Method = "POST";
-                    }
+                        // TODO: Mutation might also be treated as patch, put or delete
+                        if (parsedQuery.Name.Contains('('))
+                        {
+                            req.Method = "PATCH";
+                        }
+                        else
+                        {
+                            req.Method = "POST";
+                        }
 
-                    if (!string.IsNullOrEmpty(parsedQuery.Body))
-                    {
-                        await _requestHandler.RewriteRequestBody(req, parsedQuery.Body);
+                        if (!string.IsNullOrEmpty(parsedQuery.Body))
+                        {
+                            await _requestHandler.RewriteRequestBody(req, parsedQuery.Body);
+                        }
+
+                        break;
                     }
+                    case GQLRequestType.Subscription:
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
                 }
             }
 
-            req.Headers["accept"] = "application/json;odata.metadata=none";
+            req.Headers.Accept = "application/json;odata.metadata=none";
         }
 
         private RequestNodeInput ParseGraphql(GraphQLQuery query, out bool hasMultipleRequests, IList<string> requestNames)
         {
             //todo: we want to avoid having field scoped variables in middleware
-            // var lexer = new Lexer();
-            // var parser = new Parser(lexer);
-            
             var ast = Parser.Parse(query.Query);
 
             // TODO: Consider additional definitions like fragments and enums
@@ -94,17 +102,12 @@ namespace graphqlodata.Middlewares
 
             foreach (var definition in ast.Definitions.OfType<GraphQLOperationDefinition>())
             {
-                if (definition is GraphQLOperationDefinition gqlOpDef)
+                parsedQuery = definition.Operation switch
                 {
-                    if (gqlOpDef.Operation == OperationType.Query)
-                    {
-                        parsedQuery = _visitor.VisitQuery(gqlOpDef, out hasMultipleRequests, requestNames);
-                    }
-                    else if (gqlOpDef.Operation == OperationType.Mutation)
-                    {
-                        parsedQuery = _visitor.VisitMutation(gqlOpDef, out hasMultipleRequests, requestNames);
-                    }
-                }
+                    OperationType.Query => _visitor.VisitQuery(definition, out hasMultipleRequests, requestNames),
+                    OperationType.Mutation => _visitor.VisitMutation(definition, out hasMultipleRequests, requestNames),
+                    _ => parsedQuery
+                };
             }
             if (hasMultipleRequests)
             {
