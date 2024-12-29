@@ -170,34 +170,31 @@ namespace graphqlodata.Middlewares
             Dictionary<string, object> kvPairs,
             ref string mutationBody)
         {
-            if (arg.Value is GraphQLObjectValue obj)
+            switch (arg.Value)
             {
-                if (arg.Name.Value == "key")
-                {
+                case GraphQLObjectValue obj when arg.Name.Value == "key":
                     // TODO: extract key value
                     keySegment = VisitKeySegment(obj);
-                }
-                else
-                {
+                    break;
+                case GraphQLObjectValue obj:
                     mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
-                }
+                    break;
             }
-            else if (arg.Value.Kind == ASTNodeKind.Variable)
+            if (arg.Value.Kind == ASTNodeKind.Variable && arg.Name.Value == "input")
             {
-                if (arg.Name.Value == "input")
-                {
-                    mutationBody = argValue.ToString();
-                }
-                else
-                {
-                    kvPairs[arg.Name.StringValue] = argValue.ToString()?.Trim('"');
-                }
+                mutationBody = argValue.ToString();
             }
-            else
+
+            // todo: probably dont want this. just use single input object instead
+            kvPairs[arg.Name.StringValue] = arg.Value.Kind switch
             {
-                // todo: probably dont want this. just use single input object instead
-                kvPairs[arg.Name.StringValue] = arg.Value.ToString()?.Trim('"');
-            }
+                ASTNodeKind.IntValue => long.Parse(((GraphQLIntValue)arg.Value).Value.ToString()),
+                ASTNodeKind.FloatValue => float.Parse(((GraphQLFloatValue)arg.Value).Value.ToString()),
+                ASTNodeKind.BooleanValue => ((GraphQLBooleanValue)arg.Value).Value,
+                ASTNodeKind.StringValue => ((GraphQLStringValue)arg.Value).Value.ToString().Trim('"'),
+                ASTNodeKind.Variable => argValue.ToString()?.Trim('"'),
+                _ => arg.Value
+            };
 
             return keySegment;
         }

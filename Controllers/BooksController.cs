@@ -48,7 +48,7 @@ namespace graphqlodata.Controllers
         [HttpPost("odata/AddBook")]
         public IActionResult AddBook(ODataActionParameters parameters)
         {
-            var book = new Book { Id = 14, Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
+            var book = new Book { Id = (int)parameters["id"], Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
             return Ok(book);
         }
 
