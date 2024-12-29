@@ -186,17 +186,21 @@ namespace graphqlodata.Middlewares
             }
 
             // todo: probably dont want this. just use single input object instead
-            kvPairs[arg.Name.StringValue] = arg.Value.Kind switch
-            {
-                ASTNodeKind.IntValue => long.Parse(((GraphQLIntValue)arg.Value).Value.ToString()),
-                ASTNodeKind.FloatValue => float.Parse(((GraphQLFloatValue)arg.Value).Value.ToString()),
-                ASTNodeKind.BooleanValue => ((GraphQLBooleanValue)arg.Value).Value,
-                ASTNodeKind.StringValue => ((GraphQLStringValue)arg.Value).Value.ToString().Trim('"'),
-                ASTNodeKind.Variable => argValue.ToString()?.Trim('"'),
-                _ => arg.Value
-            };
+            kvPairs[arg.Name.StringValue] =  argValue is GraphQLVariable ? argValue.ToString()?.Trim('"') : GetValue(arg.Value);
 
             return keySegment;
+        }
+
+        private static object GetValue(GraphQLValue value)
+        {
+            return value.Kind switch
+            {
+                ASTNodeKind.IntValue => long.Parse(((GraphQLIntValue)value).Value.ToString()),
+                ASTNodeKind.FloatValue => float.Parse(((GraphQLFloatValue)value).Value.ToString()),
+                ASTNodeKind.BooleanValue => ((GraphQLBooleanValue)value).Value,
+                ASTNodeKind.StringValue => ((GraphQLStringValue)value).Value.ToString().Trim('"'),
+                _ => value.ToString(),
+            };
         }
 
         private void VisitFunctionRequest(GraphQLArgument arg, List<string> filterArgs, object argValue)
@@ -236,7 +240,7 @@ namespace graphqlodata.Middlewares
                 }
                 case ASTNodeKind.ListValue:
                 {
-                    if (arg.Name.Value == "orderBy")
+                    if (arg.Name.Value == "order_by")
                     {
                         orderByArgs.Add(VisitOrderByObject(arg.Value));
                     }
@@ -296,9 +300,8 @@ namespace graphqlodata.Middlewares
             if (orderValues?.Values is null) return string.Empty;
 
             var items = new List<string>(orderValues.Values.Count);
-            foreach (var field in orderValues.Values.Select(item => item.ToString()?.Trim('"')))
+            foreach (var field in orderValues.Values.Select(item => ((GraphQLEnumValue)item).Name.ToString().Trim('"')))
             {
-                if (field == null) continue;
                 if (field.EndsWith("_desc"))
                 {
                     items.Add($"{field[..field.LastIndexOf("_desc", StringComparison.Ordinal)]} desc");
@@ -403,9 +406,7 @@ namespace graphqlodata.Middlewares
                     break;
                 }
                 default:
-                    query = argValue is string || (argValue as GraphQLValue)?.Kind == ASTNodeKind.StringValue
-                        ? $"'{argValue.ToString()?.Trim('"')}'"
-                        : argValue.ToString();
+                    query = argValue is string ? argValue.ToString() : GetValue((GraphQLValue)argValue).ToString();  
                     break;
             }
 
@@ -449,12 +450,7 @@ namespace graphqlodata.Middlewares
                 //var valueList = field.Value as GraphQLListValue;
             }
 
-            var value = field.Value.Kind switch
-            {
-                ASTNodeKind.StringValue => ((GraphQLStringValue)field.Value).Value.ToString().Trim('"'),
-                ASTNodeKind.IntValue => ((GraphQLIntValue)field.Value).Value.ToString(),
-                _ => field.Value.ToString()
-            };
+            var value = GetValue(field.Value);
 
             if (fieldName.EndsWith("_contains"))
             {
@@ -487,12 +483,7 @@ namespace graphqlodata.Middlewares
             }
             else
             {
-                value = field.Value.Kind switch
-                {
-                    ASTNodeKind.StringValue => $"'{field.Value.ToString()?.Trim('"')}'",
-                    ASTNodeKind.IntValue => ((GraphQLIntValue)field.Value).Value.ToString(),
-                    _ => field.Value.ToString()
-                };
+                value = GetValue(field.Value).ToString();
             }
 
             var fieldName = field.Name.StringValue;
