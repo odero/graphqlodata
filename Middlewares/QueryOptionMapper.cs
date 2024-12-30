@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace graphqlodata.Middlewares
 {
-    public class QueryOptionMapper
+    public static class QueryOptionMapper
     {
         public static readonly Dictionary<string, Func<string, Dictionary<string, string>>> Options = new Dictionary<string, Func<string, Dictionary<string, string>>>
         {

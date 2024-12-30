@@ -180,27 +180,32 @@ namespace graphqlodata.Middlewares
                     mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
                     break;
             }
+
             if (arg.Value.Kind == ASTNodeKind.Variable && arg.Name.Value == "input")
             {
                 mutationBody = argValue.ToString();
             }
 
             // todo: probably dont want this. just use single input object instead
-            kvPairs[arg.Name.StringValue] =  argValue is GraphQLVariable ? argValue.ToString()?.Trim('"') : GetValue(arg.Value);
+            kvPairs[arg.Name.StringValue] = GetValue(arg.Value);
 
             return keySegment;
         }
 
-        private static object GetValue(GraphQLValue value)
+        private static object GetValue(object argValue)
         {
-            return value.Kind switch
+            if (argValue is GraphQLValue value)
             {
-                ASTNodeKind.IntValue => long.Parse(((GraphQLIntValue)value).Value.ToString()),
-                ASTNodeKind.FloatValue => float.Parse(((GraphQLFloatValue)value).Value.ToString()),
-                ASTNodeKind.BooleanValue => ((GraphQLBooleanValue)value).Value,
-                ASTNodeKind.StringValue => ((GraphQLStringValue)value).Value.ToString().Trim('"'),
-                _ => value.ToString(),
-            };
+                return value.Kind switch
+                {
+                    ASTNodeKind.IntValue => long.Parse(((GraphQLIntValue)value).Value.ToString()),
+                    ASTNodeKind.FloatValue => float.Parse(((GraphQLFloatValue)value).Value.ToString()),
+                    ASTNodeKind.BooleanValue => ((GraphQLBooleanValue)value).Value,
+                    ASTNodeKind.StringValue => ((GraphQLStringValue)value).Value.ToString().Trim('"'),
+                    _ => value.ToString(),
+                };
+            }
+            return argValue.ToString()?.Trim('"');
         }
 
         private void VisitFunctionRequest(GraphQLArgument arg, List<string> filterArgs, object argValue)
@@ -229,22 +234,14 @@ namespace graphqlodata.Middlewares
             switch (arg.Value.Kind)
             {
                 // args could be treated as filter/top/orderby
-                case ASTNodeKind.ObjectValue:
+                case ASTNodeKind.ObjectValue when arg.Name.Value == "filter" || arg.Name.Value == "where":
                 {
-                    if (arg.Name.Value == "filter" || arg.Name.Value == "where")
-                    {
-                        filterArgs.Add(VisitFilterObject(arg.Value));
-                    }
-
+                    filterArgs.Add(VisitFilterObject(arg.Value));
                     break;
                 }
-                case ASTNodeKind.ListValue:
+                case ASTNodeKind.ListValue when arg.Name.Value == "order_by":
                 {
-                    if (arg.Name.Value == "order_by")
-                    {
-                        orderByArgs.Add(VisitOrderByObject(arg.Value));
-                    }
-
+                    orderByArgs.Add(VisitOrderByObject(arg.Value));
                     break;
                 }
                 default:
@@ -252,7 +249,7 @@ namespace graphqlodata.Middlewares
                     var argName = arg.Name.StringValue.ToLowerInvariant();
                     if (QueryOptionMapper.Options.ContainsKey(argName))
                     {
-                        var remapped = QueryOptionMapper.Remap(argName, argValue.ToString());
+                        var remapped = QueryOptionMapper.Remap(argName, GetValue(argValue).ToString());
                         remapped.ToList().ForEach(kv => keywordArgs[kv.Key] = kv.Value);
                     }
                     else
@@ -406,7 +403,7 @@ namespace graphqlodata.Middlewares
                     break;
                 }
                 default:
-                    query = argValue is string ? argValue.ToString() : GetValue((GraphQLValue)argValue).ToString();  
+                    query = GetValue(argValue).ToString();
                     break;
             }
 

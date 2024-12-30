@@ -62,11 +62,13 @@ You can use `or` and `and` in the filters to support more complex filtering.
 
 Ordering is also supported via the `order_by` operator.
 
+You can you also use `first` and `last` keywords to get limit the number of records returned.
+
 ```graphql
 query BooksAndCustomers
 { 
     books(where: { or : { id_lt : 2, title_contains: "Economy" }}) { id title author }
-    customers(order_by: [name_asc, id_desc]) { id name email }
+    customers(first: 2, order_by: [name_asc, id_desc]) { id name email }
     GetSomeBook(title: "The Capitalist Economy")  { id title author }
 }
 
