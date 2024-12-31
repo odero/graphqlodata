@@ -33,13 +33,18 @@ namespace graphqlodata.Controllers
             return Created(newBook);
         }
 
-        public IActionResult Patch([FromODataUri] int key, [FromBody]Delta<Book> book)
+        public IActionResult Patch([FromRoute] int key, [FromBody]Delta<Book> delta)
         {
-            if (book == null) return BadRequest();
+            if (delta == null) return BadRequest();
             var original = booksRepository.GetBook(key);
             if (original is null) return NotFound();
-            book.Patch(original);
-            return Updated(original);
+            delta.Patch(original);
+            return Ok(original);
+        }
+        public IActionResult Delete([FromODataUri] int key)
+        {
+            var deleted = booksRepository.RemoveBook(key);
+            return Ok(deleted);
         }
 
 
@@ -49,9 +54,10 @@ namespace graphqlodata.Controllers
         public IActionResult AddBook(ODataActionParameters parameters)
         {
             var book = new Book { Id = (int)parameters["id"], Author = parameters["author"].ToString(), Title = parameters["title"].ToString() };
+            booksRepository.AddBook(book);
             return Ok(book);
         }
-
+        
         [HttpGet("odata/GetSomeBook(title={mytitle})")]
         public IActionResult GetSomeBook([FromODataUri] string mytitle)
         {

@@ -10,5 +10,6 @@ namespace graphqlodata.Repositories
         Book GetBook(int id);
 
         Book AddBook(Book book);
+        Book RemoveBook(int id);
     }
 }

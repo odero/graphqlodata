@@ -28,7 +28,7 @@ namespace graphqlodata.Middlewares
             //visit nodes
             if (gqlQuery.SelectionSet.Selections.Count > 1)
             {
-                var jsonRequest = BuildJsonBatchRequest(gqlQuery.SelectionSet, requestNames);
+                var jsonRequest = BuildJsonBatchRequest(gqlQuery, requestNames);
                 isBatch = true;
 
                 return new RequestNodeInput
@@ -155,8 +155,8 @@ namespace graphqlodata.Middlewares
                 }
                 case GQLRequestType.Function:
                     return (null, filterArgs.Count > 0 ? string.Join(",", filterArgs) : "");
-                case GQLRequestType.Mutation when kvPairs.Keys.Count > 0:
-                    return (null, JsonConvert.SerializeObject(kvPairs));
+                // case GQLRequestType.Mutation when kvPairs.Keys.Count > 0:
+                //     return (null, JsonConvert.SerializeObject(kvPairs));
                 case GQLRequestType.Mutation:
                     return (keySegment, mutationBody);
                 case GQLRequestType.Subscription:
@@ -172,13 +172,22 @@ namespace graphqlodata.Middlewares
         {
             switch (arg.Value)
             {
-                case GraphQLObjectValue obj when arg.Name.Value == "key":
+                case GraphQLObjectValue obj when arg.Name.Value == "key" || arg.Name.Value == "id":
                     // TODO: extract key value
                     keySegment = VisitKeySegment(obj);
                     break;
                 case GraphQLObjectValue obj:
                     mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
                     break;
+                case GraphQLIntValue intValue when arg.Name.Value == "key" || arg.Name.Value == "id":
+                    keySegment = GetValue(intValue).ToString();
+                    break;
+                case GraphQLStringValue stringValue when arg.Name.Value == "key" || arg.Name.Value == "id":
+                {
+                    keySegment = stringValue.ToString();
+                    // kvPairs[arg.Name.StringValue] = mutationBody ?? GetValue(arg.Value);
+                    break;
+                }
             }
 
             if (arg.Value.Kind == ASTNodeKind.Variable && arg.Name.Value == "input")
@@ -187,7 +196,8 @@ namespace graphqlodata.Middlewares
             }
 
             // todo: probably dont want this. just use single input object instead
-            kvPairs[arg.Name.StringValue] = GetValue(arg.Value);
+            if (mutationBody != null)
+                kvPairs[arg.Name.StringValue] = JsonConvert.DeserializeObject(mutationBody);
 
             return keySegment;
         }
@@ -205,6 +215,7 @@ namespace graphqlodata.Middlewares
                     _ => value.ToString(),
                 };
             }
+
             return argValue.ToString()?.Trim('"');
         }
 
@@ -320,21 +331,25 @@ namespace graphqlodata.Middlewares
             switch (value)
             {
                 case GraphQLObjectValue obj:
-                    return string.Concat(
+                {
+                    
+                    var res = string.Concat(
                         "{",
                         string.Join(
                             ",",
                             obj.Fields?.Select(fld =>
                                 $"\"{fld.Name.Value}\": {VisitInputObject(fld.Value, singleQuoteStrings)}") ??
-                            Array.Empty<string>()
+                            []
                         ),
                         "}"
                     );
+                    return res;
+                }
                 case GraphQLListValue listValue:
                     return string.Join(
                         ",",
                         listValue.Values?.Select(val => VisitInputObject(val, singleQuoteStrings)) ??
-                        Array.Empty<string>()
+                        []
                     );
                 case GraphQLVariable gqlVariable:
                 {
@@ -345,11 +360,11 @@ namespace graphqlodata.Middlewares
                 {
                     if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
                     {
-                        return $"'{value.ToString()?.Trim('"')}'";
+                        return $"'{GetValue(value).ToString()?.Trim('"')}'";
                     }
                     else
                     {
-                        return value.ToString();
+                        return GetValue(value).ToString();
                     }
                 }
             }
@@ -620,7 +635,7 @@ namespace graphqlodata.Middlewares
             if (gqlMutation.SelectionSet.Selections.Count > 1)
             {
                 //todo: add requestNames param here
-                var jsonRequest = BuildJsonBatchRequest(gqlMutation.SelectionSet, requestNames);
+                var jsonRequest = BuildJsonBatchRequest(gqlMutation, requestNames);
                 isBatch = true;
                 return new RequestNodeInput
                 {
@@ -631,22 +646,40 @@ namespace graphqlodata.Middlewares
             else
             {
                 isBatch = false;
-                var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLField;
-                //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
-                var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
-                var nodeName = mutationNode?.Name.StringValue;
-                requestNames.Add(nodeName);
-
-                var fullString = BuildSelectExpandUrl(requestInput, GQLRequestType.Mutation);
-
-                return new RequestNodeInput
-                {
-                    Name = requestInput.KeySegment is null ? nodeName : $"{nodeName}({requestInput.KeySegment})",
-                    QueryString = fullString,
-                    Body = requestInput.QueryArgs,
-                    RequestType = GQLRequestType.Mutation,
-                };
+                return BuildMutationRequestContext((GraphQLField)gqlMutation.SelectionSet.Selections.Single(),
+                    requestNames);
             }
+        }
+
+        private RequestNodeInput BuildMutationRequestContext(GraphQLField mutationNode,
+            IList<string> requestNames = null)
+        {
+            // var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLField;
+            //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
+            var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
+            var (nodeName, method) = ExtractNodeNameAndMethod(mutationNode?.Name.StringValue);
+            requestNames?.Add(nodeName);
+
+            var isAction = MutationIsActionType(model, nodeName);
+            var fullString = isAction ? BuildSelectExpandUrl(requestInput, GQLRequestType.Mutation) : "";
+
+            var res =  new RequestNodeInput
+            {
+                Name = requestInput.KeySegment is null ? nodeName : $"{nodeName}({requestInput.KeySegment})",
+                Method = method,
+                QueryString = fullString,
+                Body = requestInput.QueryArgs,
+                RequestType = isAction ? GQLRequestType.Action : GQLRequestType.Mutation,
+            };
+            return res;
+        }
+
+        private static (string, string) ExtractNodeNameAndMethod(string nodeName)
+        {
+            if (nodeName.StartsWith("add_")) return (nodeName[4..], "POST");
+            if (nodeName.StartsWith("update_")) return (nodeName[7..], "PATCH");
+            if (nodeName.StartsWith("delete_")) return (nodeName[7..], "DELETE");
+            return (nodeName, "POST");
         }
 
         private static string VisitMutationNode(GraphQLField fieldSelection, string actionName)
@@ -655,40 +688,91 @@ namespace graphqlodata.Middlewares
         }
 
 
-        private string BuildJsonBatchRequest(GraphQLSelectionSet selectionSet, IList<string> requestNames)
+        private string BuildJsonBatchRequest(GraphQLOperationDefinition graphQlOperationDefinition,
+            IList<string> requestNames)
         {
+            var selectionSet = graphQlOperationDefinition.SelectionSet;
             var batchRequest = new BatchRequestObject();
 
-            foreach (var qryNode in selectionSet.Selections.OfType<GraphQLField>()
-                         .Select((value, index) => (index, value)))
+            switch (graphQlOperationDefinition.Operation)
             {
-                var nodeName = qryNode.value.Name.StringValue;
-                requestNames.Add(nodeName);
-
-                //todo: check if query/mutation to determine request method - not possible in graphql to combine query and mutation in same request
-                RequestNodeInput requestInput = BuildQueryOrFunction(qryNode.value);
-                requestInput.QueryString = $"{requestInput.Name}{requestInput.QueryString}";
-
-                batchRequest.Requests.Add(new RequestObject
+                case OperationType.Query:
                 {
-                    Id = $"{qryNode.index + 1}",
-                    Method = "GET",
-                    Url = requestInput.QueryString,
-                    Headers = new Dictionary<string, string>
+                    foreach (var qryNode in selectionSet.Selections.OfType<GraphQLField>()
+                                 .Select((value, index) => (index, value)))
                     {
-                        { "accept", "application/json; odata.metadata=none; odata.streaming=true" },
-                        { "odata-version", "4.0" },
+                        var nodeName = qryNode.value.Name.StringValue;
+                        requestNames.Add(nodeName);
+
+                        //todo: check if query/mutation to determine request method - not possible in graphql to combine query and mutation in same request
+                        RequestNodeInput requestInput = BuildQueryOrFunction(qryNode.value);
+                        requestInput.QueryString = $"{requestInput.Name}{requestInput.QueryString}";
+
+                        batchRequest.Requests.Add(new RequestObject
+                        {
+                            Id = $"{qryNode.index + 1}",
+                            Method = "GET",
+                            Url = requestInput.QueryString,
+                            Headers = new Dictionary<string, string>
+                            {
+                                { "accept", "application/json; odata.metadata=none; odata.streaming=true" },
+                                { "odata-version", "4.0" },
+                            }
+                        });
                     }
-                });
+
+                    break;
+                }
+                case OperationType.Mutation:
+                {
+                    foreach (var qryNode in selectionSet.Selections.OfType<GraphQLField>()
+                                 .Select((value, index) => (index, value)))
+                    {
+                        var nodeName = qryNode.value.Alias?.Name.StringValue ?? qryNode.value.Name.StringValue;
+                        requestNames.Add(nodeName);
+
+                        //todo: check if query/mutation to determine request method - not possible in graphql to combine query and mutation in same request
+                        var requestInput = BuildMutationOrAction(qryNode.value);
+                        requestInput.QueryString = $"{requestInput.Name}{requestInput.QueryString}";
+                        var batchObject = new RequestObject
+                        {
+                            Id = $"{qryNode.index + 1}",
+                            Method = requestInput.Method,
+                            Url = requestInput.QueryString,
+                            Body = JsonConvert.DeserializeObject(requestInput.Body ?? "{}"),
+                            Headers = new Dictionary<string, string>
+                            {
+                                { "accept", "application/json; odata.metadata=none; odata.streaming=true" },
+                                { "content-type", "application/json" },
+                                { "odata-version", "4.0" },
+                            }
+                        };
+                        batchRequest.Requests.Add(batchObject);
+                    }
+
+                    break;
+                }
             }
 
             var res = JsonConvert.SerializeObject(batchRequest);
             return res;
         }
 
+        private RequestNodeInput BuildMutationOrAction(GraphQLField queryNode)
+        {
+            var nodeName = queryNode.Name.StringValue;
+            var resp = BuildMutationRequestContext(queryNode);
+            return resp;
+        }
+
         private static bool QueryIsFunctionType(IEdmModel model, string itemName)
         {
             return model.EntityContainer.FindOperationImports(itemName).Any();
+        }
+
+        private static bool MutationIsActionType(IEdmModel model, string itemName)
+        {
+            return QueryIsFunctionType(model, itemName);
         }
     }
 }

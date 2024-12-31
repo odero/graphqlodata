@@ -25,6 +25,13 @@ namespace graphqlodata.Repositories
             return book;
         }
 
+        public Book RemoveBook(int id)
+        {
+            var book = GetBook(id);
+            _books.Remove(GetBook(id));
+            return book;
+        }
+
         public IQueryable<Book> GetBooks()
         {
             return _books.AsQueryable();
@@ -32,7 +39,7 @@ namespace graphqlodata.Repositories
 
         public Book GetBook(int id)
         {
-            return GetBooks().Where(e => e.Id == id).FirstOrDefault();
+            return GetBooks().FirstOrDefault(e => e.Id == id);
         }
     }
 }

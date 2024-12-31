@@ -2,8 +2,8 @@
 
 namespace graphqlodata.Middlewares
 {
-    class BatchRequestObject
+    internal class BatchRequestObject
     {
-        public List<RequestObject> Requests { get; set; } = new List<RequestObject>();
+        public List<RequestObject> Requests { get; set; } = [];
     }
 }

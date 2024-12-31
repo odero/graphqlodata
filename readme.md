@@ -100,13 +100,43 @@ fragment fullBook on books {
 
 ## Mutations
 
-For now mutations only support OData actions.
+Mutations support both CRUD modification operations (i.e. create, update, delete) as well as OData actions.
+
+CRUD modification operations are supported via the `add_`, `update_` and `delete_` prefixes using the following format - `<prefix>_EntitySet`
+
+Example: `add_Books`, `update_Books`, `delete_Books`.
+
+The input values for mutations are passed in via an `input` object for both CRUD modifiers and OData actions.
+
+`update` and `delete` operations expect an `id` field which will be passed as the key segment for the specific entity to be modified.
+
+Example:
+
+```graphql
+update_Books(id: 12, input: { title: "The man from mars" })
+```
+
+will be translated to:
+
+```http
+POST /Books(12)
+{ title: "The man from mars" }
+```
+
+**IMPORTANT NOTE**: GraphQL expects all operations to return an object with at least one property. OData however, only optionally returns data from CRUD modification operations. The HTTP response status code `204` for instance returns `NO CONTENT` which means there's no response payload. You can therefore add anything in the expected GraphQL response properties.
 
 ### Actions
 
 ```graphql
-mutation AddBook($id: int, $title: String) {
-    AddBook(id: 10, title: "river and the source", author: "moses") { id title author }
+mutation BookMutations {
+    AddBook(input: {id: 25, title: "small things", author: "no name"}) { ...fullBook }
+
+    add_Books(input: {title: "river and the source", author: "mister man"}) { id }
+    
+    update_Books(id: 2, input: {title: "one man show"}) { id }
+    
+    delete_Books(id: 1) { id }
+
 }
 ```
 
@@ -122,9 +152,9 @@ mutation AddBook($id: int, $title: String) {
 - [x] support order by
 - [x] response pipeline to reformat OData response to graphql response
 - [x] filter on nav props
-- [ ] translate deletes to delete http method (not post)
+- [x] translate deletes to delete http method (not post)
+- [x] using bulk operations for insert/update/delete
 - [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
 - [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
 - [ ] casting derived types
 - [ ] aggregations (count, sum)
-- [ ] using bulk operations for insert/update/delete
