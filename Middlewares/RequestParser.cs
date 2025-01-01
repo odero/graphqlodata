@@ -44,37 +44,11 @@ namespace graphqlodata.Middlewares
                 req.Path = $"/{pathPrefix}/{parsedQuery.Name}";
                 req.QueryString = new QueryString(parsedQuery.QueryString);
                 req.Headers.ContentType = "application/json";
-                
-                switch (parsedQuery.RequestType)
+                req.Method = parsedQuery.Method;
+
+                if (!string.IsNullOrEmpty(parsedQuery.Body))
                 {
-                    case GQLRequestType.Query:
-                    case GQLRequestType.Function:
-                        req.Method = "GET";
-                        break;
-                    case GQLRequestType.Mutation:
-                    case GQLRequestType.Action:
-                    {
-                        // TODO: Mutation might also be treated as patch, put or delete
-                        if (parsedQuery.Name.Contains('('))
-                        {
-                            req.Method = "PATCH";
-                        }
-                        else
-                        {
-                            req.Method = "POST";
-                        }
-
-                        if (!string.IsNullOrEmpty(parsedQuery.Body))
-                        {
-                            await _requestHandler.RewriteRequestBody(req, parsedQuery.Body);
-                        }
-
-                        break;
-                    }
-                    case GQLRequestType.Subscription:
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
+                    await _requestHandler.RewriteRequestBody(req, parsedQuery.Body);
                 }
             }
 
