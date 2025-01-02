@@ -44,7 +44,7 @@ namespace graphqlodata.Middlewares
                 req.Path = $"/{pathPrefix}/{parsedQuery.Name}";
                 req.QueryString = new QueryString(parsedQuery.QueryString);
                 req.Headers.ContentType = "application/json";
-                req.Method = parsedQuery.Method;
+                req.Method = parsedQuery.Method ?? "GET";
 
                 if (!string.IsNullOrEmpty(parsedQuery.Body))
                 {

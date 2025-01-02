@@ -713,6 +713,7 @@ namespace graphqlodata.Middlewares
                             Id = $"{qryNode.index + 1}",
                             Method = "GET",
                             Url = requestInput.QueryString,
+                            Body = "", // avoid passing null for get requests
                             Headers = new Dictionary<string, string>
                             {
                                 { "accept", "application/json; odata.metadata=none; odata.streaming=true" },
