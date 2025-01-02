@@ -66,7 +66,7 @@ namespace graphqlodata.Middlewares
             else
             {
                 var selectedFields =
-                    VisitRequestNode(queryNode, model.EntityContainer.FindEntitySet(nodeName).EntityType());
+                    VisitRequestNode(queryNode, model.EntityContainer.FindEntitySet(nodeName).EntityType);
                 var fullString = BuildSelectExpandUrl(selectedFields);
 
                 return new RequestNodeInput
@@ -550,7 +550,7 @@ namespace graphqlodata.Middlewares
                             // todo: handling different kinds of nav props - single nav/multi nav/complex type
                             if (structuredType?
                                     .NavigationProperties()?
-                                    .FirstOrDefault(p => p.Name == field.Name.Value)?
+                                    .FirstOrDefault(p => p.Name.Equals(GetValue(field.Name.Value).ToString(), StringComparison.OrdinalIgnoreCase))?
                                     .ToEntityType() is IEdmStructuredType navPropType)
                             {
                                 // must be a nav prop which requires expand
@@ -574,7 +574,7 @@ namespace graphqlodata.Middlewares
                             {
                                 // must be a complex type/single prop which is accessed by path
                                 var propType = structuredType.StructuralProperties()
-                                    ?.FirstOrDefault(p => p?.Name == field.Name.Value)?.Type;
+                                    ?.FirstOrDefault(p => p?.Name == GetValue(field.Name.Value).ToString())?.Type;
 
                                 if (propType?.IsComplex() == true || propType?.IsCollection() == true)
                                 {
