@@ -136,7 +136,29 @@ mutation BookMutations {
     update_Books(id: 2, input: {title: "one man show"}) { id }
     
     delete_Books(id: 1) { id }
+}
+```
 
+### Aggregations
+The following aggregations are supported: `sum`, `min`, `max`, `average`, `countdistinct`, `$count` via the following syntax
+`<entity set>_aggregate { ... }`.
+
+`groupby` is also supported by using the `group_by` as shown in the example below.
+
+`$count` is represented by `_count` since graphql will not allow field names starting with `$`.
+
+For the individual properties that you want to aggregate, you should use the following syntax `<field name>_<aggregation>`.
+
+Example:
+
+```graphql
+Books_aggregate(group_by: [id, author]) {
+    price_sum
+    price_average
+    price_max
+    price_min
+    id_countdistinct
+    _count
 }
 ```
 
@@ -154,7 +176,8 @@ mutation BookMutations {
 - [x] filter on nav props
 - [x] translate deletes to delete http method (not post)
 - [x] using bulk operations for insert/update/delete
+- [x] aggregations (sum, min, max, average, countdistinct, $count)
 - [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
 - [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
 - [ ] casting derived types
-- [ ] aggregations (count, sum)
+- [ ] support property aliases

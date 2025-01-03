@@ -13,6 +13,7 @@ namespace graphqlodata.Middlewares
         Subscription, //not supported
         Function,
         Action,
+        Aggregation,
     }
 
     public class GraphqlODataMiddleware(RequestDelegate next)

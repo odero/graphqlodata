@@ -14,7 +14,9 @@ namespace graphqlodata.Middlewares
         public IList<string> SelectFields { get; init; }
         public IList<string> ExpandFields { get; init; }
         public string QueryArgs { get; init; }
+
         public string KeySegment { get; init; }
+        // public Dictionary<string, string> Alias { get; init; }
     }
 
     public class GraphQLExpressionVisitor(
@@ -63,6 +65,21 @@ namespace graphqlodata.Middlewares
                     RequestType = GQLRequestType.Function,
                 };
             }
+
+            if (QueryIsAggregation(nodeName))
+            {
+                var entitySetName = nodeName[..nodeName.LastIndexOf("_aggregate", StringComparison.Ordinal)];
+                var entityType = model.EntityContainer.FindEntitySet(entitySetName).EntityType;
+                var selectedFields = VisitRequestNode(queryNode, null, GQLRequestType.Aggregation);
+                var fullString = BuildAggregationUrl(entityType, selectedFields);
+
+                return new RequestNodeInput
+                {
+                    Name = entitySetName,
+                    QueryString = fullString,
+                    RequestType = GQLRequestType.Aggregation,
+                };
+            }
             else
             {
                 var selectedFields =
@@ -76,6 +93,49 @@ namespace graphqlodata.Middlewares
                     RequestType = GQLRequestType.Query,
                 };
             }
+        }
+
+        private string BuildAggregationUrl(IEdmEntityType entityType,
+            BuildParts selectedFields)
+        {
+            var aggregations = new List<string>();
+
+            foreach (var field in selectedFields.SelectFields)
+            {
+                if (field == "_count")
+                {
+                    aggregations.Add($"$count as _count");
+                    continue;
+                }
+                var (fieldName, aggregationType) = GetAggregationParts(field);
+                aggregations.Add($"{fieldName} with {aggregationType} as {field}");
+            }
+            
+            var groupBy = selectedFields.QueryArgs ?? string.Empty;
+            var aggregation = aggregations.Count != 0 ? $"aggregate({string.Join(",", aggregations)})" : string.Empty;
+            
+            if (string.IsNullOrEmpty(groupBy) && aggregations.Count == 0) return string.Empty;
+            if (!string.IsNullOrEmpty(groupBy))
+            {
+                aggregation = $"groupby({string.Join(",", groupBy, aggregation)})";
+            }
+            var aggregationUrl = $"?$apply={aggregation}";
+            return aggregationUrl;
+        }
+
+        private readonly List<string> supportedAggregations = ["sum", "max", "min", "average", "countdistinct", "_count"];
+
+        private (string, string) GetAggregationParts(string field)
+        {
+            var aggregation =
+                supportedAggregations.FirstOrDefault(agg => field.EndsWith($"_{agg}"));
+            var fieldName = field[..field.LastIndexOf($"_{aggregation}", StringComparison.Ordinal)];
+            return (fieldName, aggregation);
+        }
+
+        private static bool QueryIsAggregation(string nodeName)
+        {
+            return nodeName.EndsWith("_aggregate", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildSelectExpandUrl(BuildParts parts, GQLRequestType requestType = GQLRequestType.Query)
@@ -99,6 +159,7 @@ namespace graphqlodata.Middlewares
             // Query args simple case is stringKey with primitive values
             var filterArgs = new List<string>();
             var orderByArgs = new List<string>();
+            var groupByArgs = new List<string>();
             var keywordArgs = new Dictionary<string, string>();
             var mutationBody = default(string);
             var keySegment = default(string);
@@ -132,6 +193,9 @@ namespace graphqlodata.Middlewares
 
                         break;
                     }
+                    case GQLRequestType.Aggregation:
+                        VisitAggregationRequest(arg, groupByArgs, argValue);
+                        break;
                     case GQLRequestType.Subscription:
                     case GQLRequestType.Action:
                         break;
@@ -159,10 +223,21 @@ namespace graphqlodata.Middlewares
                 //     return (null, JsonConvert.SerializeObject(kvPairs));
                 case GQLRequestType.Mutation:
                     return (keySegment, mutationBody);
+                case GQLRequestType.Aggregation:
+                    return (null, $"({string.Join(",", groupByArgs)})");
                 case GQLRequestType.Subscription:
                 case GQLRequestType.Action:
                 default:
                     return (null, "");
+            }
+        }
+
+        private static void VisitAggregationRequest(GraphQLArgument argument, List<string> groupByArgs, object argValue)
+        {
+            var groupByValues = (GraphQLListValue)argument.Value;
+            foreach (var value in groupByValues.Values?.Select(val => (GraphQLEnumValue)val) ?? [])
+            {
+                groupByArgs.Add(value.Name.StringValue.ToString());
             }
         }
 
@@ -332,7 +407,6 @@ namespace graphqlodata.Middlewares
             {
                 case GraphQLObjectValue obj:
                 {
-                    
                     var res = string.Concat(
                         "{",
                         string.Join(
@@ -550,7 +624,8 @@ namespace graphqlodata.Middlewares
                             // todo: handling different kinds of nav props - single nav/multi nav/complex type
                             if (structuredType?
                                     .NavigationProperties()?
-                                    .FirstOrDefault(p => p.Name.Equals(GetValue(field.Name.Value).ToString(), StringComparison.OrdinalIgnoreCase))?
+                                    .FirstOrDefault(p => p.Name.Equals(GetValue(field.Name.Value).ToString(),
+                                        StringComparison.OrdinalIgnoreCase))?
                                     .ToEntityType() is IEdmStructuredType navPropType)
                             {
                                 // must be a nav prop which requires expand
@@ -570,20 +645,18 @@ namespace graphqlodata.Middlewares
 
                                 continue;
                             }
-                            else
-                            {
-                                // must be a complex type/single prop which is accessed by path
-                                var propType = structuredType.StructuralProperties()
-                                    ?.FirstOrDefault(p => p?.Name == GetValue(field.Name.Value).ToString())?.Type;
 
-                                if (propType?.IsComplex() == true || propType?.IsCollection() == true)
-                                {
-                                    var structType = propType.ToStructuredType();
-                                    var parts = VisitRequestNode(field, structType);
-                                    nodeFields.AddRange(parts.SelectFields);
-                                    expandItems.AddRange(parts.ExpandFields);
-                                    continue;
-                                }
+                            // must be a complex type/single prop which is accessed by path
+                            var propType = structuredType.StructuralProperties()
+                                ?.FirstOrDefault(p => p?.Name == GetValue(field.Name.Value).ToString())?.Type;
+
+                            if (propType?.IsComplex() == true || propType?.IsCollection() == true)
+                            {
+                                var structType = propType.ToStructuredType();
+                                var parts = VisitRequestNode(field, structType);
+                                nodeFields.AddRange(parts.SelectFields);
+                                expandItems.AddRange(parts.ExpandFields);
+                                continue;
                             }
                         }
 
@@ -626,6 +699,7 @@ namespace graphqlodata.Middlewares
 
         private static string VisitNodeFields(GraphQLField fieldSelection)
         {
+            // return fieldSelection.Alias?.Name.ToString() ?? fieldSelection.Name.StringValue;
             return fieldSelection.Name.StringValue;
         }
 
@@ -663,7 +737,7 @@ namespace graphqlodata.Middlewares
             var isAction = MutationIsActionType(model, nodeName);
             var fullString = isAction ? BuildSelectExpandUrl(requestInput, GQLRequestType.Mutation) : "";
 
-            var res =  new RequestNodeInput
+            var res = new RequestNodeInput
             {
                 Name = requestInput.KeySegment is null ? nodeName : $"{nodeName}({requestInput.KeySegment})",
                 Method = method,
