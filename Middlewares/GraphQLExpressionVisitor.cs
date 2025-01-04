@@ -70,8 +70,8 @@ namespace graphqlodata.Middlewares
             {
                 var entitySetName = nodeName[..nodeName.LastIndexOf("_aggregate", StringComparison.Ordinal)];
                 var entityType = model.EntityContainer.FindEntitySet(entitySetName).EntityType;
-                var selectedFields = VisitRequestNode(queryNode, null, GQLRequestType.Aggregation);
-                var fullString = BuildAggregationUrl(entityType, selectedFields);
+                var selectedFields = VisitRequestNode(queryNode, entityType, GQLRequestType.Aggregation);
+                var fullString = BuildAggregationUrl(selectedFields);
 
                 return new RequestNodeInput
                 {
@@ -95,8 +95,7 @@ namespace graphqlodata.Middlewares
             }
         }
 
-        private string BuildAggregationUrl(IEdmEntityType entityType,
-            BuildParts selectedFields)
+        private string BuildAggregationUrl(BuildParts selectedFields)
         {
             var aggregations = new List<string>();
 
@@ -194,7 +193,7 @@ namespace graphqlodata.Middlewares
                         break;
                     }
                     case GQLRequestType.Aggregation:
-                        VisitAggregationRequest(arg, groupByArgs, argValue);
+                        VisitAggregationRequest(arg, groupByArgs);
                         break;
                     case GQLRequestType.Subscription:
                     case GQLRequestType.Action:
@@ -232,12 +231,12 @@ namespace graphqlodata.Middlewares
             }
         }
 
-        private static void VisitAggregationRequest(GraphQLArgument argument, List<string> groupByArgs, object argValue)
+        private static void VisitAggregationRequest(GraphQLArgument argument, List<string> groupByArgs)
         {
             var groupByValues = (GraphQLListValue)argument.Value;
             foreach (var value in groupByValues.Values?.Select(val => (GraphQLEnumValue)val) ?? [])
             {
-                groupByArgs.Add(value.Name.StringValue.ToString());
+                groupByArgs.Add(value.Name.StringValue);
             }
         }
 
@@ -608,9 +607,9 @@ namespace graphqlodata.Middlewares
                     {
                         var frag = fragments[fragField.FragmentName.Name.StringValue];
 
-                        if (frag.SelectionSet?.Selections.Any() == true)
+                        if (frag.SelectionSet.Selections.Any())
                         {
-                            var fields = frag.SelectionSet?.Selections.OfType<GraphQLField>()
+                            var fields = frag.SelectionSet.Selections.OfType<GraphQLField>()
                                 .Select(f => f.Name.StringValue);
                             nodeFields.AddRange(fields);
                         }
@@ -756,12 +755,6 @@ namespace graphqlodata.Middlewares
             return (nodeName, "POST");
         }
 
-        private static string VisitMutationNode(GraphQLField fieldSelection, string actionName)
-        {
-            return null;
-        }
-
-
         private string BuildJsonBatchRequest(GraphQLOperationDefinition graphQlOperationDefinition,
             IList<string> requestNames)
         {
@@ -835,7 +828,6 @@ namespace graphqlodata.Middlewares
 
         private RequestNodeInput BuildMutationOrAction(GraphQLField queryNode)
         {
-            var nodeName = queryNode.Name.StringValue;
             var resp = BuildMutationRequestContext(queryNode);
             return resp;
         }

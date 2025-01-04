@@ -181,3 +181,4 @@ Books_aggregate(group_by: [id, author]) {
 - [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
 - [ ] casting derived types
 - [ ] support property aliases
+- [ ] aggregate across nav props and complex types
