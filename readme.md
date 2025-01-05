@@ -186,3 +186,4 @@ Books_aggregate(group_by: [id, author]) {
 - [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
 - [ ] casting derived types
 - [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
+- [ ] Migrate from newtonsoft to system.text.json
