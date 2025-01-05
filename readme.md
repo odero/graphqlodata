@@ -82,7 +82,11 @@ Fragments area also supported
 query BooksAndCustomers
 { 
     books(where: { or : { id_lt : 2, title_contains: "Economy" }}) { ...fullBook }
-    customers { id name email }
+    customers { 
+        id
+        name
+        PrimaryEmail: email # propery name aliasing
+    }
     GetSomeBook(title: "The Capitalist Economy")  { ...simpleBook}
 }
 
@@ -154,11 +158,11 @@ Example:
 ```graphql
 Books_aggregate(group_by: [id, author]) {
     price_sum
-    price_average
+    AvgBookPrice: price_average # example using prop name aliasing
     price_max
     price_min
     id_countdistinct
-    _count
+    _count # this is how we represent OData's $count
 }
 ```
 
@@ -177,8 +181,8 @@ Books_aggregate(group_by: [id, author]) {
 - [x] translate deletes to delete http method (not post)
 - [x] using bulk operations for insert/update/delete
 - [x] aggregations (sum, min, max, average, countdistinct, $count)
-- [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
-- [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
-- [ ] casting derived types
-- [ ] support property aliases
+- [x] support property aliases
 - [ ] aggregate across nav props and complex types
+- [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
+- [ ] casting derived types
+- [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/

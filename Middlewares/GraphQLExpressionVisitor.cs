@@ -13,10 +13,9 @@ namespace graphqlodata.Middlewares
     {
         public IList<string> SelectFields { get; init; }
         public IList<string> ExpandFields { get; init; }
+        public IList<string> AliasFields { get; init; }
         public string QueryArgs { get; init; }
-
         public string KeySegment { get; init; }
-        // public Dictionary<string, string> Alias { get; init; }
     }
 
     public class GraphQLExpressionVisitor(
@@ -95,36 +94,50 @@ namespace graphqlodata.Middlewares
             }
         }
 
-        private string BuildAggregationUrl(BuildParts selectedFields)
+        private string BuildAggregationUrl(BuildParts parts)
         {
             var aggregations = new List<string>();
 
-            foreach (var field in selectedFields.SelectFields)
+            foreach (var field in parts.SelectFields)
             {
+                var cleanedFieldName = GetAggregatorFieldWithAlias(parts, field);
                 if (field == "_count")
                 {
-                    aggregations.Add($"$count as _count");
+                    aggregations.Add($"$count as {cleanedFieldName}");
                     continue;
                 }
-                var (fieldName, aggregationType) = GetAggregationParts(field);
-                aggregations.Add($"{fieldName} with {aggregationType} as {field}");
+
+                var (fieldName, aggregationType) = SplitAggregatedFieldName(field);
+
+                aggregations.Add($"{fieldName} with {aggregationType} as {cleanedFieldName}");
             }
-            
-            var groupBy = selectedFields.QueryArgs ?? string.Empty;
+
+            var groupBy = parts.QueryArgs ?? string.Empty;
             var aggregation = aggregations.Count != 0 ? $"aggregate({string.Join(",", aggregations)})" : string.Empty;
-            
+
             if (string.IsNullOrEmpty(groupBy) && aggregations.Count == 0) return string.Empty;
             if (!string.IsNullOrEmpty(groupBy))
             {
                 aggregation = $"groupby({string.Join(",", groupBy, aggregation)})";
             }
+
             var aggregationUrl = $"?$apply={aggregation}";
             return aggregationUrl;
         }
 
-        private readonly List<string> supportedAggregations = ["sum", "max", "min", "average", "countdistinct", "_count"];
+        private static string GetAggregatorFieldWithAlias(BuildParts parts, string field)
+        {
+            var aliasPrefix = $"{field} as";
+            var aliasString = parts.AliasFields.FirstOrDefault(f =>
+                f.StartsWith(aliasPrefix));
 
-        private (string, string) GetAggregationParts(string field)
+            return aliasString != null ? aliasString[(aliasPrefix.Length + 1)..] : field;
+        }
+
+        private readonly List<string> supportedAggregations =
+            ["sum", "max", "min", "average", "countdistinct", "_count"];
+
+        private (string, string) SplitAggregatedFieldName(string field)
         {
             var aggregation =
                 supportedAggregations.FirstOrDefault(agg => field.EndsWith($"_{agg}"));
@@ -134,17 +147,24 @@ namespace graphqlodata.Middlewares
 
         private static bool QueryIsAggregation(string nodeName)
         {
-            return nodeName.EndsWith("_aggregate", StringComparison.OrdinalIgnoreCase);
+            return nodeName.EndsWith("_aggregate");
         }
 
         private static string BuildSelectExpandUrl(BuildParts parts, GQLRequestType requestType = GQLRequestType.Query)
         {
             var selectString = BuildSelectFromParts(parts.SelectFields);
-            var expandString = parts.ExpandFields.Any() ? "&$expand=" + BuildExpandFromParts(parts.ExpandFields) : "";
+            var aliasString = BuildAliasFromParts(parts.AliasFields);
+            aliasString = string.IsNullOrEmpty(aliasString) ? aliasString : $"&{aliasString}";
+            var expandString = BuildExpandFromParts(parts.ExpandFields);
             var filterString = requestType == GQLRequestType.Query && !string.IsNullOrEmpty(parts.QueryArgs)
                 ? "&" + parts.QueryArgs
                 : "";
-            return $"?$select={selectString}{expandString}{filterString}";
+            return $"?$select={selectString}{aliasString}{expandString}{filterString}";
+        }
+
+        private static string BuildAliasFromParts(IList<string> aliases)
+        {
+            return aliases.Count == 0 ? string.Empty : $"$compute={string.Join(",", aliases)}";
         }
 
         private (string segments, string args) VisitArgs(GraphQLArguments args, GQLRequestType requestType)
@@ -598,6 +618,7 @@ namespace graphqlodata.Middlewares
         {
             var nodeFields = new List<string>();
             var expandItems = new List<string>();
+            var aliasFields = new List<string>();
 
             foreach (var node in fieldSelection.SelectionSet?.Selections ?? [])
             {
@@ -606,66 +627,16 @@ namespace graphqlodata.Middlewares
                     case GraphQLFragmentSpread fragField:
                     {
                         var frag = fragments[fragField.FragmentName.Name.StringValue];
-
-                        if (frag.SelectionSet.Selections.Any())
+                        var fields = frag.SelectionSet.Selections.OfType<GraphQLField>();
+                        foreach (var fld in fields)
                         {
-                            var fields = frag.SelectionSet.Selections.OfType<GraphQLField>()
-                                .Select(f => f.Name.StringValue);
-                            nodeFields.AddRange(fields);
+                            VisitField(fieldSelection, structuredType, requestType, fld, nodeFields, expandItems, aliasFields);
                         }
-
                         break;
                     }
                     case GraphQLField field:
                     {
-                        if (field.SelectionSet?.Selections.Any() == true)
-                        {
-                            // todo: handling different kinds of nav props - single nav/multi nav/complex type
-                            if (structuredType?
-                                    .NavigationProperties()?
-                                    .FirstOrDefault(p => p.Name.Equals(GetValue(field.Name.Value).ToString(),
-                                        StringComparison.OrdinalIgnoreCase))?
-                                    .ToEntityType() is IEdmStructuredType navPropType)
-                            {
-                                // must be a nav prop which requires expand
-                                var buildParts = VisitRequestNode(field, navPropType);
-
-                                if (structuredType.TypeKind == EdmTypeKind.Complex)
-                                {
-                                    nodeFields.Add($"{fieldSelection.Name.Value}/{field.Name.Value}");
-                                    expandItems.Add(
-                                        $"{fieldSelection.Name.Value}/{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields)})");
-                                }
-                                else
-                                {
-                                    expandItems.Add(
-                                        $"{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields, buildParts.QueryArgs)})");
-                                }
-
-                                continue;
-                            }
-
-                            // must be a complex type/single prop which is accessed by path
-                            var propType = structuredType.StructuralProperties()
-                                ?.FirstOrDefault(p => p?.Name == GetValue(field.Name.Value).ToString())?.Type;
-
-                            if (propType?.IsComplex() == true || propType?.IsCollection() == true)
-                            {
-                                var structType = propType.ToStructuredType();
-                                var parts = VisitRequestNode(field, structType);
-                                nodeFields.AddRange(parts.SelectFields);
-                                expandItems.AddRange(parts.ExpandFields);
-                                continue;
-                            }
-                        }
-
-                        var visitedField = VisitNodeFields(field);
-                        if (structuredType?.TypeKind == EdmTypeKind.Complex)
-                        {
-                            visitedField = $"{fieldSelection.Name.Value}/{visitedField}";
-                        }
-
-                        nodeFields.Add(visitedField);
+                        VisitField(fieldSelection, structuredType, requestType, field, nodeFields, expandItems, aliasFields);
                         break;
                     }
                 }
@@ -678,8 +649,75 @@ namespace graphqlodata.Middlewares
                 QueryArgs = argString,
                 ExpandFields = expandItems,
                 SelectFields = nodeFields,
+                AliasFields = aliasFields,
                 KeySegment = keySegment,
             };
+        }
+
+        private void VisitField(GraphQLField fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType,
+            GraphQLField field, List<string> nodeFields, List<string> expandItems, List<string> aliasFields)
+        {
+            if (field.SelectionSet?.Selections.Any() == true)
+            {
+                // todo: handling different kinds of nav props - single nav/multi nav/complex type
+                if (structuredType?
+                        .NavigationProperties()?
+                        .FirstOrDefault(p => p.Name.Equals(GetValue(field.Name.Value).ToString(),
+                            StringComparison.OrdinalIgnoreCase))?
+                        .ToEntityType() is IEdmStructuredType navPropType)
+                {
+                    // must be a nav prop which requires expand
+                    var buildParts = VisitRequestNode(field, navPropType);
+
+                    if (structuredType.TypeKind == EdmTypeKind.Complex)
+                    {
+                        nodeFields.Add($"{fieldSelection.Name.Value}/{field.Name.Value}");
+                        expandItems.Add(
+                            $"{fieldSelection.Name.Value}/{field.Name.Value}($select={BuildSelectFromParts(buildParts.SelectFields)})");
+                    }
+                    else
+                    {
+                        var select = BuildSelectFromParts(buildParts.SelectFields, buildParts.QueryArgs);
+                        var aliases = BuildAliasFromParts(buildParts.AliasFields);
+                        aliases = string.IsNullOrEmpty(aliases) ? aliases : $";{aliases}";
+                        expandItems.Add(
+                            $"{field.Name.Value}($select={select}{aliases})");
+                    }
+
+                    return;
+                }
+
+                // must be a complex type/single prop which is accessed by path
+                var propType = structuredType.StructuralProperties()
+                    ?.FirstOrDefault(p => p?.Name == GetValue(field.Name.Value).ToString())?.Type;
+
+                if (propType?.IsComplex() == true || propType?.IsCollection() == true)
+                {
+                    var structType = propType.ToStructuredType();
+                    var parts = VisitRequestNode(field, structType);
+                    nodeFields.AddRange(parts.SelectFields);
+                    expandItems.AddRange(parts.ExpandFields);
+                    return;
+                }
+            }
+
+            var (visitedField, alias) = VisitNodeFields(field);
+            if (structuredType?.TypeKind == EdmTypeKind.Complex)
+            {
+                visitedField = $"{fieldSelection.Name.Value}/{visitedField}";
+            }
+            else
+            {
+                if (alias != null)
+                {
+                    aliasFields.Add($"{visitedField} as {alias}");
+                }
+            }
+
+            if (requestType == GQLRequestType.Aggregation)
+                nodeFields.Add(visitedField);
+            else
+                nodeFields.Add(alias ?? visitedField);
         }
 
         private static string BuildSelectFromParts(IList<string> parts, string argString = null)
@@ -692,14 +730,15 @@ namespace graphqlodata.Middlewares
 
         private static string BuildExpandFromParts(IList<string> parts)
         {
-            var expandString = string.Join(",", parts.Where(s => !string.IsNullOrEmpty(s)));
+            var expandString = parts.Count == 0
+                ? string.Empty
+                : $"&$expand={string.Join(",", parts.Where(s => !string.IsNullOrEmpty(s)))}";
             return expandString;
         }
 
-        private static string VisitNodeFields(GraphQLField fieldSelection)
+        private static (string name, string alias) VisitNodeFields(GraphQLField fieldSelection)
         {
-            // return fieldSelection.Alias?.Name.ToString() ?? fieldSelection.Name.StringValue;
-            return fieldSelection.Name.StringValue;
+            return (fieldSelection.Name.StringValue, fieldSelection.Alias?.Name.ToString());
         }
 
         internal RequestNodeInput VisitMutation(GraphQLOperationDefinition gqlMutation, out bool isBatch,
@@ -727,7 +766,6 @@ namespace graphqlodata.Middlewares
         private RequestNodeInput BuildMutationRequestContext(GraphQLField mutationNode,
             IList<string> requestNames = null)
         {
-            // var mutationNode = gqlMutation.SelectionSet.Selections.Single() as GraphQLField;
             //todo: mutation can return both the method call + select fields. Consider abstracting by interface. Need to return full path + select fields
             var requestInput = VisitRequestNode(mutationNode, null, GQLRequestType.Mutation);
             var (nodeName, method) = ExtractNodeNameAndMethod(mutationNode?.Name.StringValue);
