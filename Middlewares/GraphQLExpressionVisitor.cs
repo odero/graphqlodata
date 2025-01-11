@@ -787,9 +787,9 @@ namespace graphqlodata.Middlewares
 
         private static (string, string) ExtractNodeNameAndMethod(string nodeName)
         {
-            if (nodeName.StartsWith("add_")) return (nodeName[4..], "POST");
-            if (nodeName.StartsWith("update_")) return (nodeName[7..], "PATCH");
-            if (nodeName.StartsWith("delete_")) return (nodeName[7..], "DELETE");
+            if (nodeName.EndsWith("_add")) return (nodeName[..^4], "POST");
+            if (nodeName.EndsWith("_update")) return (nodeName[..^7], "PATCH");
+            if (nodeName.EndsWith("_delete")) return (nodeName[..^7], "DELETE");
             return (nodeName, "POST");
         }
 

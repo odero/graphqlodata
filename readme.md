@@ -16,7 +16,7 @@ Set `Content-Type` to `application/json` and then using raw json, send a request
     "
     query SampleQuery
     {
-        customers { id title }
+        Customers { id title }
         ...
     }
 
@@ -27,22 +27,22 @@ Set `Content-Type` to `application/json` and then using raw json, send a request
 
 That's it!
 
-**Important Note**: Unfortunately it's not yet possible to use Postman's graphql client since it expects either a graphql schema or introspection support.
+**Important Note**: Unfortunately it's not yet possible to use Postman's GraphQL client since it expects either a graphql schema or introspection support.
 
 ## Introspection
 
-Introspection is not currently supported which means autocompletion and graphiql are not supported.
+Introspection is not currently supported which means autocompletion and GraphiQL are not supported.
 
 ## Queries
 
-Queries are used to support the equivalent standard get requests such as `/books/` as well as OData functions.
+Queries are used to support the equivalent standard get requests such as `/Books/` as well as OData functions.
 
 ### Simple queries and Functions
 
 ```graphql
 query
 { 
-    customers { id name email }  // entity set
+    Customers { id name email }  # entity set
     GetSomeBook(title: "The Capitalist Economy")  { id title }
 }
 ```
@@ -81,20 +81,23 @@ Fragments area also supported
 ```graphql
 query BooksAndCustomers
 { 
-    books(where: { or : { id_lt : 2, title_contains: "Economy" }}) { ...fullBook }
-    customers { 
+    Books(where: { or : { id_lt : 2, title_contains: "Economy" }}) { ...fullBook }
+    Customers { 
         id
         name
-        PrimaryEmail: email # propery name aliasing
+        PrimaryEmail: email # property name aliasing
     }
     GetSomeBook(title: "The Capitalist Economy")  { ...simpleBook}
 }
 
-fragment simpleBook on books {
+fragment simpleBook on Books
+{
     id
     title
 }
-fragment fullBook on books {
+
+fragment fullBook on Books
+{
     id
     title
     author
@@ -106,9 +109,9 @@ fragment fullBook on books {
 
 Mutations support both CRUD modification operations (i.e. create, update, delete) as well as OData actions.
 
-CRUD modification operations are supported via the `add_`, `update_` and `delete_` prefixes using the following format - `<prefix>_EntitySet`
+CRUD modification operations are supported via the `_add`, `_update` and `_delete` suffixes using the following format - `EntitySet_<prefix>`
 
-Example: `add_Books`, `update_Books`, `delete_Books`.
+Example: `Books_add`, `Books_update`, `Books_delete`.
 
 The input values for mutations are passed in via an `input` object for both CRUD modifiers and OData actions.
 
@@ -117,14 +120,26 @@ The input values for mutations are passed in via an `input` object for both CRUD
 Example:
 
 ```graphql
-update_Books(id: 12, input: { title: "The man from mars" })
+mutation BookMutations
+{
+    Books_add(input: { title: "river and the source", author: "mister man" }) { id }
+
+    Books_update(id: 12, input: { title: "The man from mars" }) { id }
+
+    Books_delete(id: 11) { id }
+}
 ```
 
-will be translated to:
+will be translated into the following:
 
 ```http
-POST /Books(12)
+POST /Books
+{ title: "river and the source", author: "mister man" }
+
+PATCH /Books(12)
 { title: "The man from mars" }
+
+DELETE /Books(12)
 ```
 
 **IMPORTANT NOTE**: GraphQL expects all operations to return an object with at least one property. OData however, only optionally returns data from CRUD modification operations. The HTTP response status code `204` for instance returns `NO CONTENT` which means there's no response payload. You can therefore add anything in the expected GraphQL response properties.
@@ -132,18 +147,14 @@ POST /Books(12)
 ### Actions
 
 ```graphql
-mutation BookMutations {
-    AddBook(input: {id: 25, title: "small things", author: "no name"}) { ...fullBook }
-
-    add_Books(input: {title: "river and the source", author: "mister man"}) { id }
-    
-    update_Books(id: 2, input: {title: "one man show"}) { id }
-    
-    delete_Books(id: 1) { id }
+mutation
+{
+    AddBook(input: { id: 25, title: "small things", author: "no name" }) { ...fullBook }
 }
 ```
 
 ### Aggregations
+
 The following aggregations are supported: `sum`, `min`, `max`, `average`, `countdistinct`, `$count` via the following syntax
 `<entity set>_aggregate { ... }`.
 
@@ -156,7 +167,8 @@ For the individual properties that you want to aggregate, you should use the fol
 Example:
 
 ```graphql
-Books_aggregate(group_by: [id, author]) {
+Books_aggregate(group_by: [id, author])
+{
     price_sum
     AvgBookPrice: price_average # example using prop name aliasing
     price_max
