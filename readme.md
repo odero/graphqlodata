@@ -167,7 +167,7 @@ For the individual properties that you want to aggregate, you should use the fol
 Example:
 
 ```graphql
-Books_aggregate(group_by: [id, author])
+Books_aggregate(group_by: [Id, Author], order_by: [Author_desc])
 {
     price_sum
     AvgBookPrice: price_average # example using prop name aliasing
@@ -194,8 +194,11 @@ Books_aggregate(group_by: [id, author])
 - [x] using bulk operations for insert/update/delete
 - [x] aggregations (sum, min, max, average, countdistinct, $count)
 - [x] support property aliases
+- [x] support order_by in aggregation
 - [ ] aggregate across nav props and complex types
 - [ ] generate graphql schema from OData schema to allow graphql introspection by tools like graphiql
 - [ ] casting derived types
 - [ ] handling nav props - single/multi/complex type using direct nav syntax e.g. /Customers(1)/Trips(1)/
-- [ ] Migrate from newtonsoft to system.text.json
+- [ ] Migrate from newtonsoft.json to system.text.json
+- [ ] Support supplying external sources (e.g. Tripin)
+

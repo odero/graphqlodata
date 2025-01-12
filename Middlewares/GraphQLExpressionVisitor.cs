@@ -1,4 +1,4 @@
-﻿using GraphQLParser.AST;
+using GraphQLParser.AST;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.OData.Edm;
 using Newtonsoft.Json;
@@ -113,12 +113,25 @@ namespace graphqlodata.Middlewares
             }
 
             var groupBy = parts.QueryArgs ?? string.Empty;
+            var orderBy = string.Empty;
+
+            if (groupBy.Contains(';'))
+            {
+                var queryParts = parts.QueryArgs.Split(';'); // format [group_by, order_by]
+                groupBy = queryParts[0];
+                orderBy = queryParts[1];
+            }
             var aggregation = aggregations.Count != 0 ? $"aggregate({string.Join(",", aggregations)})" : string.Empty;
 
             if (string.IsNullOrEmpty(groupBy) && aggregations.Count == 0) return string.Empty;
             if (!string.IsNullOrEmpty(groupBy))
             {
                 aggregation = $"groupby({string.Join(",", groupBy, aggregation)})";
+            }
+
+            if (!string.IsNullOrEmpty(orderBy))
+            {
+                aggregation += $"&{orderBy}";
             }
 
             var aggregationUrl = $"?$apply={aggregation}";
@@ -198,12 +211,12 @@ namespace graphqlodata.Middlewares
                 switch (requestType)
                 {
                     case GQLRequestType.Query:
-                        VisitQueryRequest(arg, filterArgs, orderByArgs, argValue, keywordArgs);
+                    case GQLRequestType.Aggregation:
+                        VisitQueryRequest(arg, filterArgs, orderByArgs, groupByArgs, argValue, keywordArgs);
                         break;
                     case GQLRequestType.Function:
                     {
                         VisitFunctionRequest(arg, filterArgs, argValue);
-
                         break;
                     }
                     case GQLRequestType.Mutation:
@@ -212,9 +225,6 @@ namespace graphqlodata.Middlewares
 
                         break;
                     }
-                    case GQLRequestType.Aggregation:
-                        VisitAggregationRequest(arg, groupByArgs);
-                        break;
                     case GQLRequestType.Subscription:
                     case GQLRequestType.Action:
                         break;
@@ -243,7 +253,11 @@ namespace graphqlodata.Middlewares
                 case GQLRequestType.Mutation:
                     return (keySegment, mutationBody);
                 case GQLRequestType.Aggregation:
-                    return (null, $"({string.Join(",", groupByArgs)})");
+                {
+                    var orderByString = orderByArgs.Count > 0 ? "$orderBy=" + string.Join(",", orderByArgs) : "";
+                    var groupByString = $"({string.Join(",", groupByArgs)})";
+                    return (null, string.Join(";", new[] { groupByString, orderByString }));
+                }
                 case GQLRequestType.Subscription:
                 case GQLRequestType.Action:
                 default:
@@ -271,7 +285,7 @@ namespace graphqlodata.Middlewares
                     keySegment = VisitKeySegment(obj);
                     break;
                 case GraphQLObjectValue obj:
-                    mutationBody = VisitInputObject(obj, singleQuoteStrings: true);
+                    mutationBody = VisitInputObject(obj, escapeDoubleQuotes: true);
                     break;
                 case GraphQLIntValue intValue when arg.Name.Value == "key" || arg.Name.Value == "id":
                     keySegment = GetValue(intValue).ToString();
@@ -333,6 +347,7 @@ namespace graphqlodata.Middlewares
         }
 
         private void VisitQueryRequest(GraphQLArgument arg, List<string> filterArgs, List<string> orderByArgs,
+            List<string> groupByArgs,
             object argValue,
             Dictionary<string, string> keywordArgs)
         {
@@ -347,6 +362,11 @@ namespace graphqlodata.Middlewares
                 case ASTNodeKind.ListValue when arg.Name.Value == "order_by":
                 {
                     orderByArgs.Add(VisitOrderByObject(arg.Value));
+                    break;
+                }
+                case ASTNodeKind.ListValue when arg.Name.Value == "group_by":
+                {
+                    VisitAggregationRequest(arg, groupByArgs);
                     break;
                 }
                 default:
@@ -406,13 +426,13 @@ namespace graphqlodata.Middlewares
             {
                 if (field.EndsWith("_desc"))
                 {
-                    items.Add($"{field[..field.LastIndexOf("_desc", StringComparison.Ordinal)]} desc");
+                    items.Add($"{field[..^5]} desc");
                 }
                 else
                 {
-                    var sortField = field.LastIndexOf("_asc", StringComparison.Ordinal) == -1
-                        ? field
-                        : field[..field.LastIndexOf("_asc", StringComparison.Ordinal)];
+                    var sortField = field.EndsWith("_asc")
+                        ? field[..^4]
+                        : field;
                     items.Add($"{sortField} asc");
                 }
             }
@@ -420,7 +440,8 @@ namespace graphqlodata.Middlewares
             return string.Join(",", items);
         }
 
-        private string VisitInputObject(GraphQLValue value, bool singleQuoteStrings = false)
+        private string VisitInputObject(GraphQLValue value, bool singleQuoteStrings = false,
+            bool escapeDoubleQuotes = false)
         {
             switch (value)
             {
@@ -431,7 +452,7 @@ namespace graphqlodata.Middlewares
                         string.Join(
                             ",",
                             obj.Fields?.Select(fld =>
-                                $"\"{fld.Name.Value}\": {VisitInputObject(fld.Value, singleQuoteStrings)}") ??
+                                $"\"{fld.Name.Value}\": {VisitInputObject(fld.Value, singleQuoteStrings, escapeDoubleQuotes)}") ??
                             []
                         ),
                         "}"
@@ -441,7 +462,8 @@ namespace graphqlodata.Middlewares
                 case GraphQLListValue listValue:
                     return string.Join(
                         ",",
-                        listValue.Values?.Select(val => VisitInputObject(val, singleQuoteStrings)) ??
+                        listValue.Values?.Select(val =>
+                            VisitInputObject(val, singleQuoteStrings, escapeDoubleQuotes)) ??
                         []
                     );
                 case GraphQLVariable gqlVariable:
@@ -451,14 +473,13 @@ namespace graphqlodata.Middlewares
                 }
                 default:
                 {
-                    if (value.Kind == ASTNodeKind.StringValue && singleQuoteStrings)
+                    return value.Kind switch
                     {
-                        return $"'{GetValue(value).ToString()?.Trim('"')}'";
-                    }
-                    else
-                    {
-                        return GetValue(value).ToString();
-                    }
+                        ASTNodeKind.StringValue when escapeDoubleQuotes =>
+                            $"\"{GetValue(value).ToString()?.Trim('"')}\"",
+                        ASTNodeKind.StringValue when singleQuoteStrings => $"'{GetValue(value).ToString()?.Trim('"')}'",
+                        _ => GetValue(value).ToString()
+                    };
                 }
             }
         }
@@ -542,35 +563,32 @@ namespace graphqlodata.Middlewares
                         ")"
                     );
                 }
-                else if (field.Value is GraphQLListValue valueList)
-                {
+
+                if (field.Value is GraphQLListValue valueList)
                     return string.Concat(
-                        fieldName[..fieldName.LastIndexOf("_in", StringComparison.Ordinal)],
+                        fieldName[..^3],
                         " in (",
                         string.Join(',',
                             valueList.Values?.Select(v => VisitInputObject(v, singleQuoteStrings: true)) ?? []),
                         ")"
                     );
-                }
-                //var valueList = field.Value as GraphQLListValue;
             }
 
             var value = GetValue(field.Value);
 
             if (fieldName.EndsWith("_contains"))
             {
-                return
-                    $"contains({fieldName[..fieldName.LastIndexOf("_contains", StringComparison.Ordinal)]}, '{value}')";
+                return $"contains({fieldName[..^9]}, '{value}')";
             }
-            else if (fieldName.EndsWith("_startswith"))
+
+            if (fieldName.EndsWith("_startswith"))
             {
-                return
-                    $"startswith({fieldName[..fieldName.LastIndexOf("_startswith", StringComparison.Ordinal)]}, '{value}')";
+                return $"startswith({fieldName[..^11]}, '{value}')";
             }
-            else if (fieldName.EndsWith("_endswith"))
+
+            if (fieldName.EndsWith("_endswith"))
             {
-                return
-                    $"endswith({fieldName[..fieldName.LastIndexOf("_endswith", StringComparison.Ordinal)]}, '{value}')";
+                return $"endswith({fieldName[..^9]}, '{value}')";
             }
 
             return VisitLogicalFilter(field);
@@ -595,19 +613,22 @@ namespace graphqlodata.Middlewares
 
             if (fieldName.EndsWith("_gt"))
             {
-                return $"{fieldName[..fieldName.LastIndexOf("_gt", StringComparison.Ordinal)]} gt {value}";
+                return $"{fieldName[..^3]} gt {value}";
             }
-            else if (fieldName.EndsWith("_gte"))
+
+            if (fieldName.EndsWith("_gte"))
             {
-                return $"{fieldName[..fieldName.LastIndexOf("_gte", StringComparison.Ordinal)]} gte {value}";
+                return $"{fieldName[..^4]} ge {value}";
             }
-            else if (fieldName.EndsWith("_lt"))
+
+            if (fieldName.EndsWith("_lt"))
             {
-                return $"{fieldName[..fieldName.LastIndexOf("_lt", StringComparison.Ordinal)]} lt {value}";
+                return $"{fieldName[..^3]} lt {value}";
             }
-            else if (fieldName.EndsWith("_lte"))
+
+            if (fieldName.EndsWith("_lte"))
             {
-                return $"{fieldName[..fieldName.LastIndexOf("_lte", StringComparison.Ordinal)]} lte {value}";
+                return $"{fieldName[..^4]} le {value}";
             }
 
             return $"{fieldName} eq {value}";
@@ -630,13 +651,16 @@ namespace graphqlodata.Middlewares
                         var fields = frag.SelectionSet.Selections.OfType<GraphQLField>();
                         foreach (var fld in fields)
                         {
-                            VisitField(fieldSelection, structuredType, requestType, fld, nodeFields, expandItems, aliasFields);
+                            VisitField(fieldSelection, structuredType, requestType, fld, nodeFields, expandItems,
+                                aliasFields);
                         }
+
                         break;
                     }
                     case GraphQLField field:
                     {
-                        VisitField(fieldSelection, structuredType, requestType, field, nodeFields, expandItems, aliasFields);
+                        VisitField(fieldSelection, structuredType, requestType, field, nodeFields, expandItems,
+                            aliasFields);
                         break;
                     }
                 }
@@ -654,7 +678,8 @@ namespace graphqlodata.Middlewares
             };
         }
 
-        private void VisitField(GraphQLField fieldSelection, IEdmStructuredType structuredType, GQLRequestType requestType,
+        private void VisitField(GraphQLField fieldSelection, IEdmStructuredType structuredType,
+            GQLRequestType requestType,
             GraphQLField field, List<string> nodeFields, List<string> expandItems, List<string> aliasFields)
         {
             if (field.SelectionSet?.Selections.Any() == true)
